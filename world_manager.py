@@ -23,6 +23,7 @@ class Chunk:
 
     max_blocks: int = size.x * size.y * size.z
     _packer: struct.Struct = struct.Struct('<' + 'BBBB' * size.x * size.y * size.z)
+    block_size_bytes: int = struct.calcsize('<BBBB')
     byte_size: int = _packer.size
 
     def __getitem__(self, pos) -> Block:
@@ -48,9 +49,11 @@ class Chunk:
         return Chunk.size.z * Chunk.size.x * y + Chunk.size.z * z + x
 
     def to_bytes(self) -> Tuple[bytes, int]:
+        """Convert all non-air blocks to a bytes object and return how many blocks that is."""
         sorted_list = sorted(self.blocks, key=lambda block: block.type, reverse=True)
         flattened = chain(*sorted_list)
-        return Chunk._packer.pack(*flattened), Chunk.num_non_air_blocks(sorted_list)
+        non_air_count = Chunk.num_non_air_blocks(sorted_list)
+        return Chunk._packer.pack(*flattened)[:Chunk.block_size_bytes*non_air_count], non_air_count
 
     @staticmethod
     def num_non_air_blocks(blocks) -> int:
@@ -196,6 +199,19 @@ class World:
 
         chunk = Chunk(chunk_pos, blocks)
         self.chunks[chunk_pos] = chunk
+
+    @staticmethod
+    def distance_to(point: Point, origin: Point):
+        return abs(origin.x - point.x) + abs(origin.y - point.y) + abs(origin.z - point.z)
+
+    @staticmethod
+    def positions_in_radius(position: Point, radius: int):
+        out = []
+        for z in range(-radius // 2, radius // 2):
+            for x in range(-radius // 2, radius // 2):
+                if World.distance_to(Point(x, 0, z), Point(0, 0, 0)) <= radius:
+                    out.append(Point(x + position.x, position.y, z + position.z))
+        return out
 
     # ### FLOODFILLING ###
     #

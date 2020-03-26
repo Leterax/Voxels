@@ -26,6 +26,10 @@ class CubeSimpleInstanced(CameraWindow):
     resource_dir = (Path(__file__).parent / 'resources').resolve()
     aspect_ratio = None
 
+    # render settings
+    max_render_distance = 16
+    render_distance = 3
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.wnd.mouse_exclusivity = True
@@ -38,10 +42,9 @@ class CubeSimpleInstanced(CameraWindow):
         # Generate per instance data representing a grid of cubes
         world = world_manager.World(2, generate_new=True)
         # load some chunks into memory
-        world.load_world('world-24x24')
-        # for z in range(24):
-        #     for x in range(24):
-        #         world.get_chunk(x, 0, z)
+        for z in range(6):
+            for x in range(2):
+                world.get_chunk(x, 0, z)
         # world.save_world('world-24x24')
 
         chunks = list(world.chunks.values())
@@ -57,7 +60,11 @@ class CubeSimpleInstanced(CameraWindow):
             buffer.write(block_bytes, offset=index * chunk.byte_size)
             chunk_offsets.append(chunk.get_global_pos())
 
-        chunk_offsets = np.array(chunk_offsets).astype('f4')
+        chunk_offsets = np.array(chunk_offsets).astype('f4').flatten()
+        elements_in_chunk_offset = 3 * self.max_render_distance ** 2  # total of vec3 * max_render_distance^2
+        print(elements_in_chunk_offset - chunk_offsets.size)
+        chunk_offsets = np.pad(chunk_offsets, (0, elements_in_chunk_offset - chunk_offsets.size))
+        print(chunk_offsets.size)
         indirect_data = np.array(indirect_data).astype(np.uint)
 
         self.prog['chunk_offsets'].write(chunk_offsets)

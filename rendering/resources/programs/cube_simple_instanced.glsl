@@ -4,7 +4,7 @@
 #define MAX_RENDER_DISTANCE 16
 
 // chunk offsets pi ~ 4; 4*r^2
-uniform vec3[576] chunk_offsets;
+uniform vec3[MAX_RENDER_DISTANCE*MAX_RENDER_DISTANCE] chunk_offsets;
 
 // block colors
 vec4 block_colors[3] = { vec4(1., 0., 0., .5), vec4(.3, .3, .3, 1.), vec4(.1, .1, .5, 1.) };
