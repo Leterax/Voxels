@@ -37,36 +37,29 @@ class CubeSimpleInstanced(CameraWindow):
 
         # Generate per instance data representing a grid of cubes
         world = world_manager.World(2, generate_new=True)
-        world.load_world('world-01')
         # load some chunks into memory
-        world.inspect_block(0, 0, 0)
-        world.inspect_block(17, 0, 0)
-        world.inspect_block(33, 0, 0)
-        # world.inspect_block(0, 0, 17)
-        # world.inspect_block(-17, 0, 0)
-        # world.inspect_block(0, 0, -17)
-
-        # this was for testing instanced rendering of one chunk
-        # chunks = list(world.chunks.values())[:1]
-        # data, self.num_blocks = chunks[0].to_bytes()
-        # self.buffer = self.ctx.buffer(data=data)
-        # self.cube.buffer(self.buffer, '3u1 u1/i', ['in_offset', 'in_color'])
+        world.load_world('world-24x24')
+        # for z in range(24):
+        #     for x in range(24):
+        #         world.get_chunk(x, 0, z)
+        # world.save_world('world-24x24')
 
         chunks = list(world.chunks.values())
+
         buffer = self.ctx.buffer(reserve=world_manager.Chunk.byte_size * len(chunks))
 
         indirect_data = []
         chunk_offsets = []
-        total_blocks = sum(chunk.to_bytes()[1] for chunk in chunks)
+
         for index, chunk in enumerate(chunks):
             block_bytes, num_blocks = chunk.to_bytes()
-            indirect_data.extend([total_blocks, num_blocks, index * chunk.max_blocks, 0, chunk.max_blocks * index])
+            indirect_data.extend([36, num_blocks, 0, index * chunk.max_blocks, 0])
             buffer.write(block_bytes, offset=index * chunk.byte_size)
             chunk_offsets.append(chunk.get_global_pos())
 
         chunk_offsets = np.array(chunk_offsets).astype('f4')
         indirect_data = np.array(indirect_data).astype(np.uint)
-        print(indirect_data)
+
         self.prog['chunk_offsets'].write(chunk_offsets)
         self.indirect_buffer = self.ctx.buffer(indirect_data)
 
@@ -77,7 +70,7 @@ class CubeSimpleInstanced(CameraWindow):
 
         self.prog['m_camera'].write(self.camera.matrix)
         # print(struct.unpack('3fi', self.buffer.read(16, offset=16)))
-        self.cube.render_indirect(self.prog, self.indirect_buffer, count=3)
+        self.cube.render_indirect(self.prog, self.indirect_buffer)
         # self.cube.render(self.prog, instances=self.num_blocks)
 
     def key_event(self, key, action, modifiers):

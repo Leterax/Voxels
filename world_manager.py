@@ -73,7 +73,7 @@ class World:
         self._generate_chunk = self._generate_chunk_from_height_map if generate_new else self._generate_chunk_as_empty
 
     def inspect_block(self, x: int, y: int, z: int, _return_chunk: bool = False) -> Block:
-        chunk = self.get_chunk(x, y, z)
+        chunk = self.get_chunk(x // Chunk.size.x, y // Chunk.size.y, z // Chunk.size.z)
         block = chunk[x % Chunk.size.x, y % Chunk.size.y, z % Chunk.size.z]
         if _return_chunk:
             return block, chunk
@@ -87,8 +87,7 @@ class World:
         self.inspect_block(x, y, z).type = new_type
 
     def get_chunk(self, x: int, y: int, z: int) -> Chunk:
-
-        chunk_pos = Point(x // Chunk.size.x, y // Chunk.size.y, z // Chunk.size.z)
+        chunk_pos = Point(x, y, z)
 
         if chunk_pos in self.chunks:
             return self.chunks[chunk_pos]
