@@ -27,11 +27,12 @@ class CubeSimpleInstanced(CameraWindow):
     aspect_ratio = None
 
     # render settings
-    max_render_distance = 16
+    max_render_distance = 32
     render_distance = 3
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
         self.wnd.mouse_exclusivity = True
         self.camera.projection.update(near=1, far=1000)
         self.cube = geometry.cube(size=(1, 1, 1))
@@ -42,32 +43,30 @@ class CubeSimpleInstanced(CameraWindow):
         # Generate per instance data representing a grid of cubes
         world = world_manager.World(2, generate_new=True)
         # load some chunks into memory
-        for z in range(6):
-            for x in range(2):
+        for z in range(-8, 8):
+            for x in range(-8, 8):
                 world.get_chunk(x, 0, z)
-        # world.save_world('world-24x24')
+        # save it so we don't have to generate it again later
+        world.save_world('world-32x32')
 
         chunks = list(world.chunks.values())
 
         buffer = self.ctx.buffer(reserve=world_manager.Chunk.byte_size * len(chunks))
+        chunk_offsets_buffer = self.ctx.buffer(reserve=4 * 4 * self.max_render_distance ** 2)
 
         indirect_data = []
         chunk_offsets = []
 
         for index, chunk in enumerate(chunks):
-            block_bytes, num_blocks = chunk.to_bytes()
+            block_bytes, num_blocks = chunk.to_buffer_bytes()
             indirect_data.extend([36, num_blocks, 0, index * chunk.max_blocks, 0])
             buffer.write(block_bytes, offset=index * chunk.byte_size)
-            chunk_offsets.append(chunk.get_global_pos())
+            chunk_offsets.append((*chunk.get_global_pos(), 0))
 
-        chunk_offsets = np.array(chunk_offsets).astype('f4').flatten()
-        elements_in_chunk_offset = 3 * self.max_render_distance ** 2  # total of vec3 * max_render_distance^2
-        print(elements_in_chunk_offset - chunk_offsets.size)
-        chunk_offsets = np.pad(chunk_offsets, (0, elements_in_chunk_offset - chunk_offsets.size))
-        print(chunk_offsets.size)
         indirect_data = np.array(indirect_data).astype(np.uint)
+        chunk_offsets_buffer.write(np.array(chunk_offsets).astype('f4').flatten())
 
-        self.prog['chunk_offsets'].write(chunk_offsets)
+        chunk_offsets_buffer.bind_to_uniform_block()
         self.indirect_buffer = self.ctx.buffer(indirect_data)
 
         self.cube.buffer(buffer, '3u1 u1/i', ['in_offset', 'in_color'])

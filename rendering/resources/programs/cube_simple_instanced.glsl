@@ -1,10 +1,13 @@
 #version 460
 
 #if defined VERTEX_SHADER
-#define MAX_RENDER_DISTANCE 16
+#define MAX_RENDER_DISTANCE 32
 
-// chunk offsets pi ~ 4; 4*r^2
-uniform vec3[MAX_RENDER_DISTANCE*MAX_RENDER_DISTANCE] chunk_offsets;
+// chunk offsets ~r^2
+uniform ChunkOffset
+{
+  vec4 offset[MAX_RENDER_DISTANCE*MAX_RENDER_DISTANCE];
+} chunk_offsets;
 
 // block colors
 vec4 block_colors[3] = { vec4(1., 0., 0., .5), vec4(.3, .3, .3, 1.), vec4(.1, .1, .5, 1.) };
@@ -33,7 +36,7 @@ out vec4 color;
 
 void main() {
     mat4 m_view = m_camera * m_model;
-    vec4 p = m_view * vec4(in_position + in_offset + chunk_offsets[gl_DrawID], 1.0);
+    vec4 p = m_view * vec4(in_position + in_offset + chunk_offsets.offset[gl_DrawID].xyz, 1.0);
     gl_Position =  m_proj * p;
     mat3 m_normal = inverse(transpose(mat3(m_view)));
     normal = m_normal * normalize(in_normal);

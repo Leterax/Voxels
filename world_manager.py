@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple
 import logging
 from pathlib import Path
-import csv
 import struct
 from itertools import chain
 
@@ -12,30 +11,39 @@ from _types import *
 
 
 def clamp(minimum: Number, x: Number, maximum: Number) -> Number:
+    """Clamp a number between two other numbers."""
     return max(minimum, min(x, maximum))
 
 
 @dataclass
 class Chunk:
+    """Class to keep track of a chunk."""
+    # chunk position. this is in chunk space, so a increase in one means one chunk over.
     chunk_position: Point
+    # all blocks contained in this chunk
     blocks: List[Block]
+    # size of the chunk, this should stay constant
     size: Point = Point(16, 16, 16)
 
     max_blocks: int = size.x * size.y * size.z
-    _packer: struct.Struct = struct.Struct('<' + 'BBBB' * size.x * size.y * size.z)
+    # packer for packing chunk data into bytes
+    packer: struct.Struct = struct.Struct('<' + 'BBBB ' * size.x * size.y * size.z)
     block_size_bytes: int = struct.calcsize('<BBBB')
-    byte_size: int = _packer.size
+    byte_size: int = packer.size
 
     def __getitem__(self, pos) -> Block:
+        """Get the block at `pos`."""
         return self.blocks[self.get_index(*pos)]
 
     def get_global_pos(self) -> Point:
+        """Get the global position of this chunk."""
         return Point(self.chunk_position.x * self.size.x,
                      self.chunk_position.y * self.size.y,
                      self.chunk_position.z * self.size.z)
 
     @staticmethod
     def get_pos(index: int) -> Tuple[int, int, int]:
+        """Blocks are stored in a 1D array, calculate the position of the block at `index`."""
         y = index // (Chunk.size.x * Chunk.size.z)
         index -= (y * Chunk.size.x * Chunk.size.z)
         z = index // Chunk.size.x
@@ -45,23 +53,31 @@ class Chunk:
 
     @staticmethod
     def get_index(x: int, y: int, z: int) -> int:
+        """Blocks are stored in a 1D array, calculate the index of the block at `position`."""
         x, y, z = clamp(0, x, Chunk.size.x - 1), clamp(0, y, Chunk.size.y - 1), clamp(0, z, Chunk.size.z - 1)
         return Chunk.size.z * Chunk.size.x * y + Chunk.size.z * z + x
 
-    def to_bytes(self) -> Tuple[bytes, int]:
+    def to_buffer_bytes(self) -> Tuple[bytes, int]:
         """Convert all non-air blocks to a bytes object and return how many blocks that is."""
         sorted_list = sorted(self.blocks, key=lambda block: block.type, reverse=True)
         flattened = chain(*sorted_list)
         non_air_count = Chunk.num_non_air_blocks(sorted_list)
-        return Chunk._packer.pack(*flattened)[:Chunk.block_size_bytes*non_air_count], non_air_count
+        return Chunk.packer.pack(*flattened)[:self.block_size_bytes * non_air_count], non_air_count
+
+    def to_bytes(self) -> bytes:
+        """Convert the entire chunk to bytes."""
+        flattened = chain(*self.blocks)
+        return Chunk.packer.pack(*flattened)
 
     @staticmethod
     def num_non_air_blocks(blocks) -> int:
+        """calculate how many non-air blocks are in the sorted list `blocks`"""
         for i, block in enumerate(blocks):
             if block.type == BlockType.Air:
                 return i
 
     def __hash__(self):
+        """Calculate the hash of this chunk based on its position."""
         return hash(self.chunk_position)
 
 
@@ -124,7 +140,12 @@ class World:
                 continue
 
             chunk_position = Point(*map(int, chunk_filename.stem.split('.')))
-            blocks = [*map(lambda args: Block._make(map(int, args)), csv.reader(open(str(chunk_filename), 'r')))]
+            with open(chunk_filename, 'rb') as f:
+                data = Chunk.packer.unpack(f.read())
+                # group data into tuples of 4
+                data = list(zip(*(iter(data),) * 4))
+                # convert to Block - named tuples
+                blocks = list(map(lambda args: Block._make(args), data))
 
             self.chunks[chunk_position] = Chunk(chunk_position, blocks)
 
@@ -153,10 +174,9 @@ class World:
             self.save_chunk(world_path, chunk_pos)
 
     def save_chunk(self, world_path: Path, chunk_pos: Point) -> None:
-        with open(str(world_path / "{0}.{1}.{2}.chunk".format(*chunk_pos)), 'w') as f:
-            blocks = self.chunks[chunk_pos].blocks
-            block_string = '\n'.join("{0}, {1}, {2}, {3}".format(*block) for block in blocks)
-            print(block_string, file=f)
+        with open(str(world_path / "{0}.{1}.{2}.chunk".format(*chunk_pos)), 'wb') as f:
+            as_bytes = self.chunks[chunk_pos].to_bytes()
+            f.write(as_bytes)
 
     def _generate_chunk_from_height_map(self, chunk_pos: Point) -> None:
         blocks = []
@@ -266,9 +286,10 @@ def main():
     logging.basicConfig(filename="game_log.log", level=logging.DEBUG)
 
     world = World(generate_new=True)
+    world.load_world('world_bytes')
     world.inspect_block(0, 0, 0)
     world.inspect_block(Chunk.size.x + 1, 0, 0)
-    world.save_world('world_02')
+    # world.save_world('world_bytes')
 
 
 if __name__ == "__main__":
