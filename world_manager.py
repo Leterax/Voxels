@@ -226,11 +226,12 @@ class World:
 
     @staticmethod
     def positions_in_radius(position: Point, radius: int):
+        position = Point._make(position)
         out = []
         for z in range(-radius // 2, radius // 2):
             for x in range(-radius // 2, radius // 2):
                 if World.distance_to(Point(x, 0, z), Point(0, 0, 0)) <= radius:
-                    out.append(Point(x + position.x, position.y, z + position.z))
+                    out.append(Point(x + position.x, 0, z + position.z))
         return out
 
     # ### FLOODFILLING ###
