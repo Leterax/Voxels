@@ -6,7 +6,7 @@ from pathlib import Path
 import moderngl
 import numpy as np
 from pyrr import Matrix44
-
+import struct
 import sched
 from rendering.base import CameraWindow
 from moderngl_window.opengl.vao import VAO
@@ -41,7 +41,8 @@ class ThreadTest(CameraWindow):
 
         self.cube_vao = cube()
         # create a buffer and a VAO
-        positions = np.random.random((self.N, 3)).astype("f4") * 10
+        #positions = np.random.random((self.N, 3)).astype("f4") * 10
+        positions = np.ones((self.N, 3)).astype('f4')
         self.buffer_01 = self.ctx.buffer(positions)
         self.buffer_02 = self.ctx.buffer(positions)
 
@@ -75,7 +76,8 @@ class ThreadTest(CameraWindow):
         self.program["m_proj"].write(self.camera.projection.matrix)
 
         # render the vao
-        print(f"rendering {self.buffer_01}")
+        #data_buff1 = self.buffer_02.read()
+        #print(f"rendering {self.buffer_01}, {struct.unpack('f'*3*self.N, data_buff1)}")
         self.cube_vao.render(self.program, instances=self.N)
 
 

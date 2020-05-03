@@ -1,4 +1,5 @@
 import multiprocessing
+import struct
 import time
 import threading
 from typing import Callable
@@ -33,6 +34,7 @@ class Writer(threading.Thread):
                 target_id, data = self.queue.get()
                 buffer = self.buffer1 if self.toggle.is_set() else self.buffer2
                 buffer.write(data, offset=3 * 4 * target_id)
+                print(struct.unpack('f'*3*5, self.buffer1.read()))
                 print(f'writing {data} to buffer {buffer} at offset: {3 * 4 * target_id}')
             else:
                 self.done_flag.set()
