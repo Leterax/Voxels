@@ -1,97 +1,41 @@
+import math
+import multiprocessing
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 import logging
 from pathlib import Path
 import struct
 from itertools import chain
-
+from threaded_world_gen import TerrainWorker
 import noise
+from queue import Empty as EmptyException
 
 from _types import *
 
 
-def clamp(minimum: Number, x: Number, maximum: Number) -> Number:
-    """Clamp a number between two other numbers."""
-    return max(minimum, min(x, maximum))
-
-
-@dataclass
-class Chunk:
-    """Class to keep track of a chunk."""
-    # chunk position. this is in chunk space, so a increase in one means one chunk over.
-    chunk_position: Point
-    # all blocks contained in this chunk
-    blocks: List[Block]
-    # size of the chunk, this should stay constant
-    size: Point = Point(16, 16, 16)
-
-    max_blocks: int = size.x * size.y * size.z
-    # packer for packing chunk data into bytes
-    packer: struct.Struct = struct.Struct('<' + 'BBBB ' * size.x * size.y * size.z)
-    block_size_bytes: int = struct.calcsize('<BBBB')
-    byte_size: int = packer.size
-
-    def __getitem__(self, pos) -> Block:
-        """Get the block at `pos`."""
-        return self.blocks[self.get_index(*pos)]
-
-    def get_global_pos(self) -> Point:
-        """Get the global position of this chunk."""
-        return Point(self.chunk_position.x * self.size.x,
-                     self.chunk_position.y * self.size.y,
-                     self.chunk_position.z * self.size.z)
-
-    @staticmethod
-    def get_pos(index: int) -> Tuple[int, int, int]:
-        """Blocks are stored in a 1D array, calculate the position of the block at `index`."""
-        y = index // (Chunk.size.x * Chunk.size.z)
-        index -= (y * Chunk.size.x * Chunk.size.z)
-        z = index // Chunk.size.x
-        index -= (z * Chunk.size.z)
-        x = index % Chunk.size.y
-        return x, y, z
-
-    @staticmethod
-    def get_index(x: int, y: int, z: int) -> int:
-        """Blocks are stored in a 1D array, calculate the index of the block at `position`."""
-        x, y, z = clamp(0, x, Chunk.size.x - 1), clamp(0, y, Chunk.size.y - 1), clamp(0, z, Chunk.size.z - 1)
-        return Chunk.size.z * Chunk.size.x * y + Chunk.size.z * z + x
-
-    def to_buffer_bytes(self) -> Tuple[bytes, int]:
-        """Convert all non-air blocks to a bytes object and return how many blocks that is."""
-        sorted_list = sorted(self.blocks, key=lambda block: block.type, reverse=True)
-        flattened = chain(*sorted_list)
-        non_air_count = Chunk.num_non_air_blocks(sorted_list)
-        return Chunk.packer.pack(*flattened)[:self.block_size_bytes * non_air_count], non_air_count
-
-    def to_bytes(self) -> bytes:
-        """Convert the entire chunk to bytes."""
-        flattened = chain(*self.blocks)
-        return Chunk.packer.pack(*flattened)
-
-    @staticmethod
-    def num_non_air_blocks(blocks) -> int:
-        """calculate how many non-air blocks are in the sorted list `blocks`"""
-        for i, block in enumerate(blocks):
-            if block.type == BlockType.Air:
-                return i
-
-    def __hash__(self):
-        """Calculate the hash of this chunk based on its position."""
-        return hash(self.chunk_position)
-
-
 class World:
-    saves_dir = resource_dir = (Path(__file__) / '../saves').resolve().absolute()
+    saves_dir = resource_dir = (Path(__file__) / "../saves").resolve().absolute()
 
     def __init__(self, seed=0, generate_new=False):
         self._seed = seed
         self.amplitude = Chunk.size.y // 2
-        self.chunks: Dict[Point, Chunk] = {}
+        self._generation_scale = 1 / 50
 
-        self._generate_chunk = self._generate_chunk_from_height_map if generate_new else self._generate_chunk_as_empty
+        manager = multiprocessing.Manager()
+        self.chunks: Dict[
+            Point, Tuple[int, Union[Chunk, ChunkRequested]]
+        ] = manager.dict()
 
-    def inspect_block(self, x: int, y: int, z: int, _return_chunk: bool = False) -> Block:
+        self._generation_queue = multiprocessing.Queue()
+        self.work_count = multiprocessing.Value("i")
+        self.num_threads = 8
+        self._workers: List[TerrainWorker] = []
+        self.start_generation_workers()
+
+    def inspect_block(
+        self, x: int, y: int, z: int, _return_chunk: bool = False
+    ) -> Block:
         chunk = self.get_chunk(x // Chunk.size.x, y // Chunk.size.y, z // Chunk.size.z)
         block = chunk[x % Chunk.size.x, y % Chunk.size.y, z % Chunk.size.z]
         if _return_chunk:
@@ -105,30 +49,47 @@ class World:
     def set_block(self, x: int, y: int, z: int, new_type: BlockType) -> None:
         self.inspect_block(x, y, z).type = new_type
 
-    def get_chunk(self, x: int, y: int, z: int) -> Chunk:
+    def get_chunk(self, x: int, y: int, z: int) -> Tuple[int, Chunk]:
         chunk_pos = Point(x, y, z)
 
         if chunk_pos in self.chunks:
             return self.chunks[chunk_pos]
         else:
-            self._generate_chunk(chunk_pos)
+            self.ask_generate_chunk(chunk_pos)
             return self.chunks[chunk_pos]
+
+    def pull_new_chunks_block(self):
+        while self.work_count.value > 0:
+            time.sleep(0.25)
+
+    def ask_generate_chunk(self, chunk_pos: Point):
+        if chunk_pos in self.chunks:
+            return False
+        self.chunks[chunk_pos] = (-1, ChunkRequested())
+        with self.work_count.get_lock():
+            self.work_count.value += 1
+        self._generation_queue.put(chunk_pos)
+        return True
 
     @staticmethod
     def _get_global_pos(local_pos: Point, chunk_pos: Point) -> Point:
-        return Point(Chunk.size.x * chunk_pos.x + local_pos.x,
-                     local_pos.y,
-                     Chunk.size.z * chunk_pos.z + local_pos.z)
+        return Point(
+            Chunk.size.x * chunk_pos.x + local_pos.x,
+            local_pos.y,
+            Chunk.size.z * chunk_pos.z + local_pos.z,
+        )
 
     def load_world(self, world_name: str) -> None:
         world_path = self.saves_dir / world_name
-        config_file = world_path / (world_name + '.config')
-        logging.info(f"Loading world '{world_name}' from '{world_path}' with config_file {config_file}")
-        with open(config_file, 'r') as f:
+        config_file = world_path / (world_name + ".config")
+        logging.info(
+            f"Loading world '{world_name}' from '{world_path}' with config_file {config_file}"
+        )
+        with open(config_file, "r") as f:
             # ignore any line that starts with '#'
-            lines = list(filter(lambda s: not s.startswith('#'), f.readlines()))
+            lines = list(filter(lambda s: not s.startswith("#"), f.readlines()))
             # first line of the config file should be the comma separated chunk size
-            Chunk.size = Point(*map(int, lines[0].split(',')))
+            Chunk.size = Point(*map(int, lines[0].split(",")))
             self._seed = int(lines[1])
             self.amplitude = int(lines[2])
 
@@ -136,11 +97,13 @@ class World:
         for chunk_filename in world_path.glob("**/*.chunk"):
             # there shouldn't be any dirs in here, but just to be sure.
             if not chunk_filename.is_file():
-                logging.info(f"Encountered non-file type '{chunk_filename}' in save dir '{world_path}'")
+                logging.info(
+                    f"Encountered non-file type '{chunk_filename}' in save dir '{world_path}'"
+                )
                 continue
 
-            chunk_position = Point(*map(int, chunk_filename.stem.split('.')))
-            with open(chunk_filename, 'rb') as f:
+            chunk_position = Point(*map(int, chunk_filename.stem.split(".")))
+            with open(chunk_filename, "rb") as f:
                 data = Chunk.packer.unpack(f.read())
                 # group data into tuples of 4
                 data = list(zip(*(iter(data),) * 4))
@@ -154,36 +117,56 @@ class World:
         # if the world dir doesn't exist yet, create it
         world_path.mkdir(parents=True, exist_ok=True)
 
-        config_file = world_path / (world_name + '.config')
+        config_file = world_path / (world_name + ".config")
 
-        logging.info(f"Saving world '{world_name}' to '{world_path}' with config_file '{config_file}'")
+        logging.info(
+            f"Saving world '{world_name}' to '{world_path}' with config_file '{config_file}'"
+        )
 
         # overwrite the config file just to be sure.
-        with open(config_file, 'w') as f:
-            config_string = ("# Chunk size:\n"
-                             f"{Chunk.size.x}, {Chunk.size.y}, {Chunk.size.z}\n"
-                             "# World _seed:\n"
-                             f"{self._seed}\n"
-                             "# Wold generation amplitude:\n"
-                             f"{self.amplitude}\n"
-                             )
-            print(config_string, file=f, end='')
+        with open(config_file, "w") as f:
+            config_string = (
+                "# Chunk size:\n"
+                f"{Chunk.size.x}, {Chunk.size.y}, {Chunk.size.z}\n"
+                "# World _seed:\n"
+                f"{self._seed}\n"
+                "# Wold generation amplitude:\n"
+                f"{self.amplitude}\n"
+            )
+            print(config_string, file=f, end="")
 
         # save all visited chunks
         for chunk_pos in self.chunks:
             self.save_chunk(world_path, chunk_pos)
 
     def save_chunk(self, world_path: Path, chunk_pos: Point) -> None:
-        with open(str(world_path / "{0}.{1}.{2}.chunk".format(*chunk_pos)), 'wb') as f:
+        with open(str(world_path / "{0}.{1}.{2}.chunk".format(*chunk_pos)), "wb") as f:
             as_bytes = self.chunks[chunk_pos].to_bytes()
             f.write(as_bytes)
+
+    def start_generation_workers(self):
+        new_workers = [
+            TerrainWorker(self._generation_queue, self.chunks, self.work_count)
+            for _ in range(self.num_threads)
+        ]
+        for worker in self._workers:
+            worker.terminate()
+        self._workers = new_workers
 
     def _generate_chunk_from_height_map(self, chunk_pos: Point) -> None:
         blocks = []
 
         def height_at(x: int, z: int) -> float:
-            return noise.snoise3(x / 20, z / 20, self._seed,
-                                 octaves=6) * self.amplitude + self.amplitude / 2
+            return (
+                noise.snoise3(
+                    x * self._generation_scale,
+                    z * self._generation_scale,
+                    self._seed,
+                    octaves=6,
+                )
+                * self.amplitude
+                + self.amplitude / 2
+            )
 
         chunk_height_map = []
 
@@ -191,7 +174,7 @@ class World:
         for z in range(Chunk.size.z):
             sublist = []
             for x in range(Chunk.size.x):
-                global_pos = self._get_global_pos(Point(x, 0, z), chunk_pos)
+                global_pos = self._get_global_pos(Point(z, 0, x), chunk_pos)
                 sublist.append(height_at(global_pos.x, global_pos.z))
 
             chunk_height_map.append(sublist)
@@ -222,72 +205,28 @@ class World:
 
     @staticmethod
     def distance_to(point: Point, origin: Point):
-        return abs(origin.x - point.x) + abs(origin.y - point.y) + abs(origin.z - point.z)
+        return math.sqrt(
+            (point.x - origin.x) ** 2
+            + (point.y - origin.y) ** 2
+            + (point.z - origin.z) ** 2
+        )
 
     @staticmethod
     def positions_in_radius(position: Point, radius: int):
         position = Point._make(position)
         out = []
-        for z in range(-radius // 2, radius // 2):
-            for x in range(-radius // 2, radius // 2):
+        for z in range(-radius, radius):
+            for x in range(-radius, radius):
                 if World.distance_to(Point(x, 0, z), Point(0, 0, 0)) <= radius:
                     out.append(Point(x + position.x, 0, z + position.z))
         return out
-
-    # ### FLOODFILLING ###
-    #
-    # @staticmethod
-    # def distance_to(point: Point, origin: Point):
-    #     return abs(origin.x - point.x) + abs(origin.y - point.y) + abs(origin.z - point.z)
-    #
-    # def get_neighbours(self, block: Block) -> List[Tuple[Block, Chunk]]:
-    #     neighbour_offsets = ((-1, 0, 0), (1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
-    #     neighbours = []
-    #     for x, y, z in neighbour_offsets:
-    #         neighbour_position = Point(block.x + x, block.y + y, block.z + z)
-    #         b, chunk = self.inspect_block(*neighbour_position, _return_chunk=True)
-    #         neighbours.append((b, chunk))
-    #
-    #     return neighbours
-    #
-    # def flood_fill(self, origin: Tuple[Block, Chunk], max_distance: int):
-    #     origin_pos = self._get_global_pos(origin[0], origin[1].chunk_position)
-    #
-    #     looked_at = set()
-    #     open_queue = deque()
-    #     edge: Set[Block] = set()
-    #
-    #     open_queue.append(origin)
-    #     while len(open_queue) > 0:
-    #         # get the next block to look at
-    #         current_block, current_chunk = open_queue.pop()
-    #         current_pos = self._get_global_pos(current_block, current_chunk.chunk_position)
-    #         if current_pos in looked_at:
-    #             continue
-    #         else:
-    #             looked_at.add(current_pos)
-    #
-    #         # ignore the block if its outside of our viewing distance
-    #         if self.distance_to(current_pos, origin_pos) > max_distance:
-    #             print(f"distance: {self.distance_to(current_pos, origin_pos)} is too far")
-    #             edge.add((Block(*current_block[:-1], BlockType.Edge), current_chunk))
-    #             continue
-    #
-    #         if current_block.type == BlockType.Air:
-    #             # add neighbours to open list
-    #             open_queue.extend(self.get_neighbours(current_pos))
-    #         else:
-    #             # add self to the edge list
-    #             edge.add((current_block, current_chunk))
-    #
-    #     return edge, open_queue
 
 
 def main():
     logging.basicConfig(filename="game_log.log", level=logging.DEBUG)
 
     world = World(generate_new=True)
-    world.load_world('world_bytes')
+    world.load_world("world_bytes")
     world.inspect_block(0, 0, 0)
     world.inspect_block(Chunk.size.x + 1, 0, 0)
     # world.save_world('world_bytes')
