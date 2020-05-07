@@ -28,7 +28,11 @@ class TerrainTest(mglw.WindowConfig):
 
         # load programs
         self.program = self.load_program("programs/terrain_generation.glsl")
-        self.cube_emit = self.load_program("programs/cube_geometry.glsl")
+        self.cube_emit = self.load_program(
+            vertex_shader="programs/cube_geometry_vs.glsl",
+            geometry_shader="programs/test_geo.glsl",
+            fragment_shader="programs/cube_geometry_fs.glsl",
+        )
 
         # self.cube_emit["world_tex"] = 0
         chunk_offsets_buffer = self.ctx.buffer(data=np.zeros((32 * 32, 3)).astype("f4"))
@@ -44,20 +48,25 @@ class TerrainTest(mglw.WindowConfig):
         ids = np.arange(self.N).astype("i")
         id_template = self.ctx.buffer(ids)
 
-        chunk_id = np.arange(self.N * 32 * 32).astype("i")
-        chunk_id_template = self.ctx.buffer(chunk_id)
-
-        self.vao = VAO(name="vao")
-        self.vao.buffer(id_template, "i", ["in_id"])
-
-        self.geometry_vao = VAO(name="geo_vao")
-        self.geometry_vao.buffer(chunk_id_template, "i", ["in_id"])
-
+        # buffers
         self.out_buffer = self.ctx.buffer(reserve=self.N * 4)
         self.geo_out_buffer = self.ctx.buffer(reserve=self.N * 24 * 4 * 3)
         self.chunk_offsets = self.ctx.buffer(
             reserve=(3 * 4) * self.render_distance ** 2
         )
+
+        # VAO's
+        self.vao = self.ctx.vertex_array(self.program, [(id_template, "i", "in_id")])
+        self.geometry_vao = self.ctx.vertex_array(
+            self.cube_emit, [(self.out_buffer, "i", "in_block")]
+        )
+        # self.vao = VAO(name="vao")
+        # self.vao.buffer(id_template, "i", ["in_id"])
+        #
+        # self.geometry_vao = VAO(name="geo_vao")
+        # self.geometry_vao.buffer(self.out_buffer, "i", ["in_block"])
+
+        # Texture
         self.world_texture = self.ctx.texture(
             (self.N, self.render_distance ** 2), alignment=4, dtype="i4", components=1
         )
@@ -67,9 +76,7 @@ class TerrainTest(mglw.WindowConfig):
 
     def generate_chunk(self, pos=(0.0, 0.0, 0.0), chunk_id=0):
         self.program["offset"] = pos
-        self.vao.transform(
-            self.program, self.out_buffer, mode=moderngl.POINTS, vertices=self.N
-        )
+        self.vao.transform(self.out_buffer, mode=moderngl.POINTS, vertices=self.N)
 
         self.world_texture.write(
             self.out_buffer.read(), viewport=(0, chunk_id, self.N, 1)
@@ -77,9 +84,7 @@ class TerrainTest(mglw.WindowConfig):
 
         self.world_texture.use(0)
         with self.q:
-            self.geometry_vao.transform(
-                self.cube_emit, self.geo_out_buffer, mode=moderngl.POINTS, vertices=self.N * 32 * 32
-            )
+            self.geometry_vao.render(mode=moderngl.TRIANGLE_STRIP)
         print(self.q.primitives)
         print(self.ctx.error)
 
