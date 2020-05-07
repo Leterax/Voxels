@@ -84,7 +84,7 @@ class TerrainTest(mglw.WindowConfig):
 
         self.world_texture.use(0)
         with self.q:
-            self.geometry_vao.render(mode=moderngl.TRIANGLE_STRIP)
+            self.geometry_vao.render(mode=moderngl.POINTS)
         print(self.q.primitives)
         print(self.ctx.error)
 
