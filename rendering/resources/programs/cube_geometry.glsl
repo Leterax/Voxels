@@ -31,9 +31,8 @@ void main() {
     vec3 pos = get_pos(in_id);
 	gl_Position = vec4(pos, 1.0);
 }
-#endif
 
- #if defined GEOMETRY_SHADER
+#elif defined GEOMETRY_SHADER
 
 layout (points) in;
 layout (triangle_strip, max_vertices = 24) out; // 4 vertices per side of the cube
@@ -105,7 +104,7 @@ void main()
 //		corners[i] = pos;
 //	}
     ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
-    
+
     out_pos = point.xyz + cube_corners[3];
     EmitVertex();
 

@@ -54,7 +54,7 @@ class TerrainTest(mglw.WindowConfig):
         self.geometry_vao.buffer(chunk_id_template, "i", ["in_id"])
 
         self.out_buffer = self.ctx.buffer(reserve=self.N * 4)
-        self.geo_out_buffer = self.ctx.buffer(reserve=self.N // 2 * 24 * 4)
+        self.geo_out_buffer = self.ctx.buffer(reserve=self.N * 24 * 4 * 3)
         self.chunk_offsets = self.ctx.buffer(
             reserve=(3 * 4) * self.render_distance ** 2
         )
@@ -81,6 +81,7 @@ class TerrainTest(mglw.WindowConfig):
                 self.cube_emit, self.geo_out_buffer, mode=moderngl.POINTS, vertices=self.N * 32 * 32
             )
         print(self.q.primitives)
+        print(self.ctx.error)
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
