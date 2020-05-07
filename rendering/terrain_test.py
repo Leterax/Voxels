@@ -62,7 +62,7 @@ class TerrainTest(mglw.WindowConfig):
             (self.N, self.render_distance ** 2), alignment=4, dtype="i4", components=1
         )
 
-        self.generate_chunk()
+        self.q = self.ctx.query(primitives=True)
         # data = struct.unpack(f'{self.render_distance**2 * self.N}i', self.world_texture.read(alignment=4))[:self.N]
 
     def generate_chunk(self, pos=(0.0, 0.0, 0.0), chunk_id=0):
@@ -76,9 +76,11 @@ class TerrainTest(mglw.WindowConfig):
         )
 
         self.world_texture.use(0)
-        self.geometry_vao.transform(
-            self.cube_emit, self.geo_out_buffer, mode=moderngl.POINTS, vertices=self.N * 32 * 32
-        )
+        with self.q:
+            self.geometry_vao.transform(
+                self.cube_emit, self.geo_out_buffer, mode=moderngl.POINTS, vertices=self.N * 32 * 32
+            )
+        print(self.q.primitives)
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)

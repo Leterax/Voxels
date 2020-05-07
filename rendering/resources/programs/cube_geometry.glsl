@@ -72,21 +72,6 @@ int get_block(ivec3 pos) {
 //	out_pos = POS; \
 //	EmitVertex()
 
-void emit_quad(vec3 p1, vec3 p2, vec3 p3, vec3 p4) {
-    out_pos = p1;
-    EmitVertex();
-
-    out_pos = p2;
-    EmitVertex();
-
-    out_pos = p3;
-    EmitVertex();
-
-    out_pos = p4;
-    EmitVertex();
-
-    EndPrimitive();
-}
 
 //#define EMIT_QUAD(P1, P2, P3, P4) \
 //	EMIT_V(corners[P1]); \
@@ -119,6 +104,8 @@ void main()
 //		vec3 pos = vec3(point.xyz + cube_corners[i] * 0.5);
 //		corners[i] = pos;
 //	}
+    ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
+    
     out_pos = point.xyz + cube_corners[3];
     EmitVertex();
 
