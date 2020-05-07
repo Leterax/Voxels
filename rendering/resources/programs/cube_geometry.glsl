@@ -42,6 +42,7 @@ uniform sampler2D world_tex;
 
 //out vec2 uv;
 //out vec3 normal;
+out vec3 out_pos;
 
 // Define the 8 corners of a cube (back plane, front plane (counter clockwise))
 vec3 cube_corners[8] = vec3[]  (
@@ -67,16 +68,32 @@ int get_block(ivec3 pos) {
     return int(texture(world_tex, get_index(pos)).x);
 }
 
-#define EMIT_V(POS) \
-	gl_Position = vec4(POS, 1.0); \
-	EmitVertex()
+//#define EMIT_V(POS) \
+//	out_pos = POS; \
+//	EmitVertex()
 
-#define EMIT_QUAD(P1, P2, P3, P4) \
-	EMIT_V(corners[P1]); \
-	EMIT_V(corners[P2]); \
-	EMIT_V(corners[P3]); \
-	EMIT_V(corners[P4]); \
-	EndPrimitive()
+void emit_quad(vec3 p1, vec3 p2, vec3 p3, vec3 p4) {
+    out_pos = p1;
+    EmitVertex();
+
+    out_pos = p2;
+    EmitVertex();
+
+    out_pos = p3;
+    EmitVertex();
+
+    out_pos = p4;
+    EmitVertex();
+
+    EndPrimitive();
+}
+
+//#define EMIT_QUAD(P1, P2, P3, P4) \
+//	EMIT_V(corners[P1]); \
+//	EMIT_V(corners[P2]); \
+//	EMIT_V(corners[P3]); \
+//	EMIT_V(corners[P4]); \
+//	EndPrimitive()
 
 //#define EMIT_V(POS, UV, NORMAL) \
 //	uv = UV; \
@@ -95,32 +112,52 @@ int get_block(ivec3 pos) {
 void main()
 {
 	// Calculate the 8 cube corners
-	ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
-	vec3 corners[8];
-	for(int i = 0; i < 8; i++)
-	{
-		vec3 pos = vec3(point.xyz + cube_corners[i] * 0.5);
-		corners[i] = pos;
-	}
+	//ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
+	//vec3 corners[8];
+//	for(int i = 0; i < 8; i++)
+//	{
+//		vec3 pos = vec3(point.xyz + cube_corners[i] * 0.5);
+//		corners[i] = pos;
+//	}
+    out_pos = point.xyz + cube_corners[3];
+    EmitVertex();
 
-    if (get_block(point-ivec3(0,0,-1)) == 0) {
-        EMIT_QUAD(3, 2, 0, 1); // back
-    }
-	if (get_block(point-ivec3(0,0,1)) == 0) {
-        EMIT_QUAD(6, 7, 5, 4); // front
-    }
-    if (get_block(point-ivec3(1,0,0)) == 0) {
-        EMIT_QUAD(7, 3, 4, 0); // right
-    }
-    if (get_block(point-ivec3(-1,0,0)) == 0) {
-        EMIT_QUAD(2, 6, 1, 5); // left
-    }
-    if (get_block(point-ivec3(0,1,0)) == 0) {
-        EMIT_QUAD(5, 4, 1, 0); // top
-    }
-    if (get_block(point-ivec3(0,-1,0)) == 0) {
-        EMIT_QUAD(2, 3, 6, 7); // bottom
-    }
+    out_pos = point.xyz + cube_corners[2];
+    EmitVertex();
+
+    out_pos = point.xyz + cube_corners[0];
+    EmitVertex();
+
+    out_pos = point.xyz + cube_corners[1];
+    EmitVertex();
+
+    EndPrimitive();
+
+//    emit_quad(corners[3], corners[2], corners[0], corners[1]); // back
+//    emit_quad(corners[6], corners[7], corners[5], corners[4]); // front
+//    emit_quad(corners[7], corners[3], corners[4], corners[0]); // right
+//    emit_quad(corners[2], corners[6], corners[1], corners[5]); // left
+//    emit_quad(corners[5], corners[4], corners[1], corners[0]); // top
+//    emit_quad(corners[2], corners[3], corners[6], corners[7]); // bottom
+
+//    if (get_block(point-ivec3(0,0,-1)) == 0) {
+//        EMIT_QUAD(3, 2, 0, 1); // back
+//    }
+//	if (get_block(point-ivec3(0,0,1)) == 0) {
+//        EMIT_QUAD(6, 7, 5, 4); // front
+//    }
+//    if (get_block(point-ivec3(1,0,0)) == 0) {
+//        EMIT_QUAD(7, 3, 4, 0); // right
+//    }
+//    if (get_block(point-ivec3(-1,0,0)) == 0) {
+//        EMIT_QUAD(2, 6, 1, 5); // left
+//    }
+//    if (get_block(point-ivec3(0,1,0)) == 0) {
+//        EMIT_QUAD(5, 4, 1, 0); // top
+//    }
+//    if (get_block(point-ivec3(0,-1,0)) == 0) {
+//        EMIT_QUAD(2, 3, 6, 7); // bottom
+//    }
 //    if (get_block(point-ivec3(0,0,-1)) == 0) {
 //        EMIT_QUAD(3, 2, 0, 1, vec3( 0.0,  0.0, -1.0)); // back
 //    }
@@ -139,7 +176,7 @@ void main()
 //    if (get_block(point-ivec3(0,-1,0)) == 0) {
 //        EMIT_QUAD(2, 3, 6, 7, vec3( 0.0, -1.0,  0.0)); // bottom
 //    }
-    EndPrimitive();
+
 }
 
 #endif
