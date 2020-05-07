@@ -31,6 +31,9 @@ void main() {
     if (location.y < height) {
         block_type = 1;
     }
+    else if (location == vec3(1)) {
+        block_type = 2;
+    }
     else{
         block_type = 0;
     }

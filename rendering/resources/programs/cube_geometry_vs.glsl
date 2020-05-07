@@ -29,5 +29,5 @@ out int block_type;
 void main() {
     vec3 pos = get_pos(gl_VertexID);
     block_type = in_block;
-	gl_Position = vec4(pos, 1.0);
+	gl_Position = vec4(pos, 1.0) + vec4(in_block);
 }

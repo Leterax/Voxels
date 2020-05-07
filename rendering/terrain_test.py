@@ -5,9 +5,12 @@ import moderngl
 import numpy as np
 from moderngl_window.opengl.vao import VAO
 import moderngl_window as mglw
+from pyrr import Matrix44
+
+from base import CameraWindow
 
 
-class TerrainTest(mglw.WindowConfig):
+class TerrainTest(CameraWindow):
     # moderngl_window settings
     gl_version = (3, 3)
     title = "terrain_test"
@@ -26,13 +29,15 @@ class TerrainTest(mglw.WindowConfig):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        self.ctx.front_face = 'ccw'
         # load programs
         self.program = self.load_program("programs/terrain_generation.glsl")
         self.cube_emit = self.load_program(
             vertex_shader="programs/cube_geometry_vs.glsl",
-            geometry_shader="programs/test_geo.glsl",
-            fragment_shader="programs/cube_geometry_fs.glsl",
+            geometry_shader="programs/cube_geometry_geo.glsl",
+            # fragment_shader="programs/cube_geometry_fs.glsl",
         )
+        self.test_program = self.load_program("programs/test.glsl")
 
         # self.cube_emit["world_tex"] = 0
         chunk_offsets_buffer = self.ctx.buffer(data=np.zeros((32 * 32, 3)).astype("f4"))
@@ -44,27 +49,26 @@ class TerrainTest(mglw.WindowConfig):
         self.program["chunk_size"] = self.chunk_size
         self.program["offset"] = (0.0, 0.0, 0.0)
 
+        self.test_program["m_proj"].write(self.camera.projection.matrix)
+        self.test_program["m_model"].write(Matrix44.identity(dtype="f4"))
+
         # create a buffer and a VAO
         ids = np.arange(self.N).astype("i")
         id_template = self.ctx.buffer(ids)
 
         # buffers
         self.out_buffer = self.ctx.buffer(reserve=self.N * 4)
-        self.geo_out_buffer = self.ctx.buffer(reserve=self.N * 24 * 4 * 3)
-        self.chunk_offsets = self.ctx.buffer(
-            reserve=(3 * 4) * self.render_distance ** 2
-        )
+        self.geo_out_buffer = self.ctx.buffer(reserve=719712)
 
         # VAO's
         self.vao = self.ctx.vertex_array(self.program, [(id_template, "i", "in_id")])
         self.geometry_vao = self.ctx.vertex_array(
             self.cube_emit, [(self.out_buffer, "i", "in_block")]
         )
-        # self.vao = VAO(name="vao")
-        # self.vao.buffer(id_template, "i", ["in_id"])
-        #
-        # self.geometry_vao = VAO(name="geo_vao")
-        # self.geometry_vao.buffer(self.out_buffer, "i", ["in_block"])
+        self.test_render_vao = self.ctx.vertex_array(
+            self.test_program,
+            [(self.geo_out_buffer, "3f4 3f4", "in_normal", "in_position")],
+        )
 
         # Texture
         self.world_texture = self.ctx.texture(
@@ -84,17 +88,22 @@ class TerrainTest(mglw.WindowConfig):
 
         self.world_texture.use(0)
         with self.q:
-            self.geometry_vao.render(mode=moderngl.POINTS)
-        print(self.q.primitives)
+            self.geometry_vao.transform(self.geo_out_buffer, mode=moderngl.POINTS)
+
+        self.test_render_vao.render(
+            mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
+        )
         print(self.ctx.error)
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
-        self.generate_chunk()
-        # self.wnd.close()
+        self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
-        # render the result
-        # self.vao.render(self.program, mode=moderngl.POINTS)
+        # update camera values in both programs
+        self.test_program["m_camera"].write(self.camera.matrix)
+        self.test_program["m_proj"].write(self.camera.projection.matrix)
+
+        self.generate_chunk()
 
 
 if __name__ == "__main__":
