@@ -30,6 +30,7 @@ void main() {
     float height = (snoise(vec3(location.xz*scale, seed)) + 1.) / 2. * amplitude;
     if (location.y < height) {
         block_type = 1;
+
     }
     else{
         block_type = 0;

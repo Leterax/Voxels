@@ -10,7 +10,7 @@ class CameraWindow(mglw.WindowConfig):
         self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio)
         self.camera.yaw, self.camera.pitch = 0, -0
         self.camera.rot_state(0, 0)
-        self.camera.set_position(0, 5.0, 0)
+        self.camera.set_position(0, 2.5, 0)
         self.camera.mouse_sensitivity = 0.25
 
         self.camera_enabled = True

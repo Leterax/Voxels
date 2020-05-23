@@ -35,7 +35,6 @@ class TerrainTest(CameraWindow):
         )
         self.test_program = self.load_program("programs/test.glsl")
 
-        # self.cube_emit["world_tex"] = 0
         chunk_offsets_buffer = self.ctx.buffer(data=np.zeros((32 * 32, 3)).astype("f4"))
         chunk_offsets_buffer.bind_to_uniform_block()
 
@@ -65,10 +64,12 @@ class TerrainTest(CameraWindow):
 
         # Texture
         self.world_texture = self.ctx.texture(
-            (self.N, 3), alignment=4, dtype="i4", components=1
+            (self.N, 1), alignment=4, dtype="i4", components=1
         )
 
         self.q = self.ctx.query(primitives=True)
+
+        self.generate_chunk()
         # data = struct.unpack(f'{self.render_distance**2 * self.N}i', self.world_texture.read(alignment=4))[:self.N]
 
     def generate_chunk(self, pos=(0.0, 0.0, 0.0), chunk_id=0):
@@ -83,19 +84,17 @@ class TerrainTest(CameraWindow):
         with self.q:
             self.geometry_vao.transform(self.geo_out_buffer, mode=moderngl.POINTS)
 
-        self.test_render_vao.render(
-            mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
-        )
-
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
-        self.ctx.enable_only(moderngl.DEPTH_TEST) #  | moderngl.CULL_FACE
+        self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
         # update camera values in both programs
         self.test_program["m_camera"].write(self.camera.matrix)
         self.test_program["m_proj"].write(self.camera.projection.matrix)
 
-        self.generate_chunk()
+        self.test_render_vao.render(
+            mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
+        )
 
 
 if __name__ == "__main__":
