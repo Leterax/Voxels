@@ -1,9 +1,6 @@
-from math import ceil
 from pathlib import Path
-import struct
 import moderngl
 import numpy as np
-from moderngl_window.opengl.vao import VAO
 import moderngl_window as mglw
 from pyrr import Matrix44
 
@@ -29,7 +26,6 @@ class TerrainTest(CameraWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.ctx.front_face = 'ccw'
         # load programs
         self.program = self.load_program("programs/terrain_generation.glsl")
         self.cube_emit = self.load_program(
@@ -52,16 +48,13 @@ class TerrainTest(CameraWindow):
         self.test_program["m_proj"].write(self.camera.projection.matrix)
         self.test_program["m_model"].write(Matrix44.identity(dtype="f4"))
 
-        # create a buffer and a VAO
-        ids = np.arange(self.N).astype("i")
-        id_template = self.ctx.buffer(ids)
-
+        # create buffers and VAOs
         # buffers
         self.out_buffer = self.ctx.buffer(reserve=self.N * 4)
-        self.geo_out_buffer = self.ctx.buffer(reserve=719712)
+        self.geo_out_buffer = self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
 
         # VAO's
-        self.vao = self.ctx.vertex_array(self.program, [(id_template, "i", "in_id")])
+        self.vao = self.ctx.vertex_array(self.program, [])
         self.geometry_vao = self.ctx.vertex_array(
             self.cube_emit, [(self.out_buffer, "i", "in_block")]
         )
@@ -72,7 +65,7 @@ class TerrainTest(CameraWindow):
 
         # Texture
         self.world_texture = self.ctx.texture(
-            (self.N, self.render_distance ** 2), alignment=4, dtype="i4", components=1
+            (self.N, 3), alignment=4, dtype="i4", components=1
         )
 
         self.q = self.ctx.query(primitives=True)
@@ -93,11 +86,10 @@ class TerrainTest(CameraWindow):
         self.test_render_vao.render(
             mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
         )
-        print(self.ctx.error)
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
-        self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+        self.ctx.enable_only(moderngl.DEPTH_TEST) #  | moderngl.CULL_FACE
 
         # update camera values in both programs
         self.test_program["m_camera"].write(self.camera.matrix)

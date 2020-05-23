@@ -8,7 +8,7 @@ class CameraWindow(mglw.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio)
-        self.camera.yaw, self.camera.pitch = 0, -24.0
+        self.camera.yaw, self.camera.pitch = 0, -0
         self.camera.rot_state(0, 0)
         self.camera.set_position(0, 5.0, 0)
         self.camera.mouse_sensitivity = 0.25
@@ -39,3 +39,6 @@ class CameraWindow(mglw.WindowConfig):
 
     def resize(self, width: int, height: int):
         self.camera.projection.update(aspect_ratio=self.wnd.aspect_ratio)
+
+    def render(self, time: float, frame_time: float):
+        pass

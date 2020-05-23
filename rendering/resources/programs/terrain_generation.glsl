@@ -4,7 +4,7 @@
 
 #include programs/noise.glsl
 
-in int in_id;
+//in int in_id;
 uniform vec3 offset;
 
 uniform float seed;
@@ -26,13 +26,10 @@ vec3 get_pos(int index) {
 
 
 void main() {
-    vec3 location = offset + get_pos(in_id);
-    float height = snoise(vec3(location.xz*scale, seed)) * amplitude;
+    vec3 location = offset + get_pos(gl_VertexID);
+    float height = (snoise(vec3(location.xz*scale, seed)) + 1.) / 2. * amplitude;
     if (location.y < height) {
         block_type = 1;
-    }
-    else if (location == vec3(1)) {
-        block_type = 2;
     }
     else{
         block_type = 0;

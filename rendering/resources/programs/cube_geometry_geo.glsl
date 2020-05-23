@@ -8,7 +8,7 @@ layout (triangle_strip, max_vertices = 36) out; // 4 vertices per side of the cu
 
 in int block_type[];
 
-uniform sampler2D world_tex;
+uniform isampler2D world_tex;
 
 //out vec2 uv;
 out vec3 normal;
@@ -26,50 +26,57 @@ vec3 cube_corners[8] = vec3[]  (
 	vec3( 1.0, -1.0,  1.0)  // right bottom near 7
 );
 
-ivec2 get_index(ivec3 pos) {
-    ivec3 chunk = pos/CHUNK_SIZE;
-    pos = ivec3(mod(pos, CHUNK_SIZE));
-    int in_chunk_id = CHUNK_SIZE * CHUNK_SIZE * pos.y + CHUNK_SIZE * pos.z + pos.x;
-    int chunk_id = 0;
-    return ivec2(chunk_id, in_chunk_id);
+vec2 get_index(ivec3 pos) {
+    //ivec3 chunk = pos/CHUNK_SIZE;
+    // check if position is outside of chunk.
+    if ((0 <= pos.x && pos.x <= CHUNK_LENGTH) && (0 <= pos.y && pos.y <= CHUNK_LENGTH) && (0 <= pos.y && pos.y <= CHUNK_LENGTH)) {
+        int in_chunk_id = CHUNK_LENGTH * CHUNK_LENGTH * pos.y + CHUNK_LENGTH * pos.z + pos.x;
+        int chunk_id = 0;
+        return vec2(in_chunk_id, chunk_id);
+    }
+    else {
+        return vec2(-1, -1);
+    }
 }
 
 int get_block(ivec3 pos) {
-    return int(texture(world_tex, get_index(pos)).x);
+    vec2 index = get_index(pos);
+    if (index.x < 0) {
+        return 2;
+    }
+    return texture(world_tex, index.xy).x;
+}
+
+void emit_triangle(vec3 p1, vec3 p2, vec3 p3, vec3 in_normal) {
+    normal = in_normal;
+    out_pos = p1;
+    EmitVertex();
+
+    normal = in_normal;
+    out_pos = p2;
+    EmitVertex();
+
+    normal = in_normal;
+    out_pos = p3;
+    EmitVertex();
+
+    EndPrimitive();
+
 }
 
 void emit_quad(vec3 tl, vec3 bl, vec3 br, vec3 tr, vec3 in_normal) {
     //   top left, bottom left, bottom right, top right
-    normal = in_normal;
-    out_pos = tl;
-    EmitVertex();
-    normal = in_normal;
-    out_pos = bl;
-    EmitVertex();
-    normal = in_normal;
-    out_pos = br;
-    EmitVertex();
-    EndPrimitive();
+    emit_triangle(tl, bl, br, in_normal);
 
-    normal = in_normal;
-    out_pos = tr;
-    EmitVertex();
-    normal = in_normal;
-    out_pos = tl;
-    EmitVertex();
-    normal = in_normal;
-    out_pos = br;
-    EmitVertex();
-    EndPrimitive();
+    emit_triangle(tr, tl, br, in_normal);
 }
 
 void main()
 {
 
-    ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
-    if (block_type[0] == 2){
+    if (block_type[0] == 1){
         // Calculate the 8 cube corners
-        vec3 point = vec3(gl_in[0].gl_Position.xyz);
+        ivec3 point = ivec3(gl_in[0].gl_Position.xyz);
         vec3 corners[8];
         for(int i = 0; i < 8; i++)
         {
@@ -77,24 +84,24 @@ void main()
             corners[i] = pos;
         }
 
-        emit_quad(corners[5], corners[6], corners[7], corners[4], vec3( 0.0,  0.0,  1.0)); // front
-        emit_quad(corners[1], corners[2], corners[3], corners[0], vec3( 0.0,  0.0, -1.0)); // back
-
-        emit_quad(corners[1], corners[2], corners[6], corners[5], vec3( 1.0,  0.0,  0.0)); // left
-        emit_quad(corners[0], corners[3], corners[7], corners[4], vec3( -1.0,  0.0,  0.0)); // right
-
-        emit_quad(corners[1], corners[5], corners[4], corners[0], vec3( 0.0,  1.0,  0.0)); // top
-        emit_quad(corners[2], corners[6], corners[7], corners[3], vec3( 0.0, -1.0,  0.0)); // bottom
+        if (get_block(point + ivec3(0, 0, -1)) == 0) {
+            emit_quad(corners[5], corners[6], corners[7], corners[4], vec3( 0.0,  0.0,  1.0)); // front
+        }
+        if (get_block(point + ivec3(0, 0, 1)) == 0) {
+             emit_quad(corners[3], corners[2], corners[1], corners[0], vec3( 0.0,  0.0, -1.0)); // back
+        }
+        if (get_block(point + ivec3(-1, 0, 0)) == 0) {
+            emit_quad(corners[1], corners[2], corners[6], corners[5], vec3( 1.0,  0.0,  0.0)); // left
+        }
+        if (get_block(point + ivec3(1, 0, 0)) == 0) {
+            emit_quad(corners[7], corners[3], corners[0], corners[4], vec3( -1.0,  0.0,  0.0)); // right
+        }
+        if (get_block(point + ivec3(0, 1, 0)) == 0) {
+            emit_quad(corners[1], corners[5], corners[4], corners[0], vec3( 0.0,  1.0,  0.0)); // top
+        }
+        if (get_block(point + ivec3(0, -1, 0)) == 0) {
+            emit_quad(corners[7], corners[6], corners[2], corners[3], vec3( 0.0, -1.0,  0.0)); // bottom
+        }
     }
-
-
-//    emit_quad(corners[3], corners[2], corners[0], corners[1]); // back
-//                  1           2           0           3
-//    emit_quad(corners[6], corners[7], corners[5], corners[4]); // front
-//                  1           2           0           3
-//    emit_quad(corners[7], corners[3], corners[4], corners[0]); // right
-//    emit_quad(corners[2], corners[6], corners[1], corners[5]); // left
-//    emit_quad(corners[5], corners[4], corners[1], corners[0]); // top
-//    emit_quad(corners[2], corners[3], corners[6], corners[7]); // bottom
 
 }
