@@ -10,6 +10,8 @@ in int block_type[];
 in int index[];
 
 uniform isampler2D world_tex;
+uniform int chunk_id;
+uniform vec3 chunk_pos;
 
 //out vec2 uv;
 out vec3 normal;
@@ -37,25 +39,24 @@ ivec3 get_pos(int index) {
     return ivec3(x,y,z);
 }
 
-ivec2 get_index(ivec3 pos) {
+int get_index(ivec3 pos) {
     //ivec3 chunk = pos/CHUNK_SIZE;
     // check if position is outside of chunk.
     if ((0 <= pos.x && pos.x < CHUNK_LENGTH) && (0 <= pos.y && pos.y < CHUNK_LENGTH) && (0 <= pos.z && pos.z < CHUNK_LENGTH)) {
         int in_chunk_id = CHUNK_LENGTH * CHUNK_LENGTH * pos.y + CHUNK_LENGTH * pos.z + pos.x;
-        int chunk_id = 0;
-        return ivec2(in_chunk_id, chunk_id);
+        return in_chunk_id;
     }
     else {
-        return ivec2(-1, -1);
+        return -1;
     }
 }
 
 int get_block(ivec3 pos) {
-    ivec2 index = get_index(pos);
-    if (index.x < 0) {
+    int index = get_index(pos);
+    if (index < 0) {
         return 0;
     }
-    return texelFetch(world_tex, index, 0).x;
+    return texelFetch(world_tex, ivec2(index, chunk_id), 0).x;
 }
 
 void emit_triangle(vec3 p1, vec3 p2, vec3 p3, vec3 in_normal) {
@@ -91,7 +92,7 @@ void main()
         vec3 corners[8];
         for(int i = 0; i < 8; i++)
         {
-            vec3 pos = vec3(point.xyz + cube_corners[i] * 0.5);
+            vec3 pos = vec3(chunk_pos + point.xyz + cube_corners[i] * 0.5);
             corners[i] = pos;
         }
 
