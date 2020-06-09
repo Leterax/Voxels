@@ -1,7 +1,6 @@
 #version 330
 
-#define CHUNK_SIZE 4096 // 16^3
-#define CHUNK_LENGTH 16
+uniform int CHUNK_LENGTH;
 
 uniform ChunkOffset
 {

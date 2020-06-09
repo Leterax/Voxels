@@ -1,10 +1,9 @@
 #version 330
 
-#define CHUNK_SIZE 4096 // 16^3
-#define CHUNK_LENGTH 16
-
 layout (points) in;
 layout (triangle_strip, max_vertices = 36) out; // 4 vertices per side of the cube
+
+uniform int CHUNK_LENGTH;
 
 in int block_type[];
 in int index[];

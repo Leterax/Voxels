@@ -18,8 +18,8 @@ class TerrainTest(CameraWindow):
     samples = 4
 
     # app settings
-    chunk_size = 16
-    render_distance = 32
+    chunk_size = 32
+    render_distance = 64
     N = int(chunk_size ** 3)
     seed = 1
 
@@ -35,10 +35,13 @@ class TerrainTest(CameraWindow):
             geometry_shader="programs/cube_geometry_geo.glsl",
             # fragment_shader="programs/cube_geometry_fs.glsl",
         )
+
+        self.cube_emit_program["CHUNK_LENGTH"] = self.chunk_size
+
         self.test_render_program = self.load_program("programs/test.glsl")
 
         self.terrain_generation_program["seed"] = self.seed
-        self.terrain_generation_program["scale"] = 0.05
+        self.terrain_generation_program["scale"] = 0.01
         self.terrain_generation_program["amplitude"] = self.chunk_size
         self.terrain_generation_program["chunk_size"] = self.chunk_size
         self.terrain_generation_program["offset"] = (0.0, 0.0, 0.0)
@@ -98,9 +101,11 @@ class TerrainTest(CameraWindow):
         self.test_render_program["m_camera"].write(self.camera.matrix)
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
 
-        for x in range(5):
-            for y in range(5):
-                self.generate_chunk(pos=(self.chunk_size * x, 0, self.chunk_size * y), chunk_id=x*y)
+        for x in range(4):
+            for y in range(4):
+                self.generate_chunk(
+                    pos=(self.chunk_size * x, 0, self.chunk_size * y), chunk_id=x * y
+                )
 
                 self.test_render_vao.render(
                     mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
