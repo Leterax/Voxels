@@ -18,14 +18,13 @@ class TerrainTest(CameraWindow):
     samples = 4
 
     # app settings
-    chunk_size = 32
-    render_distance = 64
+    chunk_size = 16
+    render_distance = 4
     N = int(chunk_size ** 3)
     seed = 1
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-
         # load programs
         self.terrain_generation_program = self.load_program(
             "programs/terrain_generation.glsl"
@@ -36,7 +35,7 @@ class TerrainTest(CameraWindow):
             # fragment_shader="programs/cube_geometry_fs.glsl",
         )
 
-        self.cube_emit_program["CHUNK_LENGTH"] = self.chunk_size
+        # self.cube_emit_program["CHUNK_LENGTH"] = self.chunk_size
 
         self.test_render_program = self.load_program("programs/test.glsl")
 
@@ -50,25 +49,33 @@ class TerrainTest(CameraWindow):
         self.test_render_program["m_model"].write(Matrix44.identity(dtype="f4"))
 
         # create buffers and VAOs
-        # buffers
-        chunk_offsets_buffer = self.ctx.buffer(data=np.zeros((32 * 32, 3)).astype("f4"))
-        chunk_offsets_buffer.bind_to_uniform_block()
+        self.terrain_gen_out_buffer = self.ctx.buffer(reserve=self.N * 4)
 
-        self.out_buffer = self.ctx.buffer(reserve=self.N * 4)
-
-        self.geo_out_buffer = self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
+        # since we dont use indirect rendering we need one buffer per vao, so lets create them
+        self.chunk_buffers = {
+            (x, y): self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
+            for x in range(self.render_distance)
+            for y in range(self.render_distance)
+        }
 
         # VAO's
         self.terrain_generator = self.ctx.vertex_array(
             self.terrain_generation_program, []
         )
         self.geometry_vao = self.ctx.vertex_array(
-            self.cube_emit_program, [(self.out_buffer, "i", "in_block")]
+            self.cube_emit_program, [(self.terrain_gen_out_buffer, "i", "in_block")]
         )
-        self.test_render_vao = self.ctx.vertex_array(
-            self.test_render_program,
-            [(self.geo_out_buffer, "3f4 3f4", "in_normal", "in_position")],
-        )
+        # no indirect rendering for now.. so we just create a bunch of vaos
+        self.rendering_vaos = [
+            self.ctx.vertex_array(
+                self.test_render_program,
+                [(self.chunk_buffers[(x, y)], "3f4 3f4", "in_normal", "in_position",)],
+            )
+            for x in range(self.render_distance)
+            for y in range(self.render_distance)
+        ]
+        # number of vertices for each vao/buffer
+        self.num_vertices = [0] * self.render_distance ** 2
 
         # Texture
         self.world_texture = self.ctx.texture(
@@ -77,21 +84,38 @@ class TerrainTest(CameraWindow):
 
         self.q = self.ctx.query(primitives=True)
 
-    def generate_chunk(self, pos=(0.0, 0.0, 0.0), chunk_id=0):
-        self.terrain_generation_program["offset"] = pos
+        # generate some initial chunks
+        print(self.chunk_buffers)
+        print(self.rendering_vaos)
+        self.generate_chunk(0, 0)
+
+    def generate_chunk(self, x, y):
+        world_pos = (float(x * self.chunk_size), 0.0, float(y * self.chunk_size))
+        x = x % self.render_distance
+        y = y % self.render_distance
+        chunk_id = x + y * self.render_distance
+        out_buffer = self.chunk_buffers[(x, y)]
+
+        print(chunk_id)
+        print(world_pos)
+        print(self.N)
+
+        self.terrain_generation_program["offset"] = world_pos
         self.terrain_generator.transform(
-            self.out_buffer, mode=moderngl.POINTS, vertices=self.N
+            self.terrain_gen_out_buffer, mode=moderngl.POINTS, vertices=self.N
         )
 
         self.world_texture.write(
-            self.out_buffer.read(), viewport=(0, chunk_id, self.N, 1)
+            self.terrain_gen_out_buffer.read(), viewport=(0, chunk_id, self.N, 1)
         )
 
         self.cube_emit_program["chunk_id"] = chunk_id
-        self.cube_emit_program["chunk_pos"] = pos
+        self.cube_emit_program["chunk_pos"] = world_pos
         self.world_texture.use(0)
         with self.q:
-            self.geometry_vao.transform(self.geo_out_buffer, mode=moderngl.POINTS)
+            self.geometry_vao.transform(out_buffer, mode=moderngl.POINTS)
+            self.num_vertices[chunk_id] = self.q.primitives
+            print(self.q.primitives)
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
@@ -101,15 +125,8 @@ class TerrainTest(CameraWindow):
         self.test_render_program["m_camera"].write(self.camera.matrix)
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
 
-        for x in range(4):
-            for y in range(4):
-                self.generate_chunk(
-                    pos=(self.chunk_size * x, 0, self.chunk_size * y), chunk_id=x * y
-                )
-
-                self.test_render_vao.render(
-                    mode=moderngl.TRIANGLES, vertices=self.q.primitives * 3
-                )
+        for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
+            vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
 
 if __name__ == "__main__":

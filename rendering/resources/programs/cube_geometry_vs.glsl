@@ -2,11 +2,6 @@
 
 uniform int CHUNK_LENGTH;
 
-uniform ChunkOffset
-{
-  vec3 offset[32*32];
-} chunk_offsets;
-
 
 vec3 get_pos(int index) {
     //int chunk_offset = int(index/CHUNK_SIZE);
