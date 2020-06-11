@@ -52,11 +52,13 @@ class TerrainTest(CameraWindow):
         self.terrain_gen_out_buffer = self.ctx.buffer(reserve=self.N * 4)
 
         # since we dont use indirect rendering we need one buffer per vao, so lets create them
-        self.chunk_buffers = {
-            (x, y): self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
-            for x in range(self.render_distance)
-            for y in range(self.render_distance)
-        }
+        self.chunk_buffers = [
+            [
+                self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
+                for _ in range(self.render_distance)
+            ]
+            for _ in range(self.render_distance)
+        ]
 
         # VAO's
         self.terrain_generator = self.ctx.vertex_array(
@@ -67,11 +69,20 @@ class TerrainTest(CameraWindow):
         )
         # no indirect rendering for now.. so we just create a bunch of vaos
         self.rendering_vaos = [
-            self.ctx.vertex_array(
-                self.test_render_program,
-                [(self.chunk_buffers[(x, y)], "3f4 3f4", "in_normal", "in_position",)],
-            )
-            for x in range(self.render_distance)
+            [
+                self.ctx.vertex_array(
+                    self.test_render_program,
+                    [
+                        (
+                            self.chunk_buffers[x][y],
+                            "3f4 3f4",
+                            "in_normal",
+                            "in_position",
+                        )
+                    ],
+                )
+                for x in range(self.render_distance)
+            ]
             for y in range(self.render_distance)
         ]
         # number of vertices for each vao/buffer
@@ -85,20 +96,12 @@ class TerrainTest(CameraWindow):
         self.q = self.ctx.query(primitives=True)
 
         # generate some initial chunks
-        print(self.chunk_buffers)
-        print(self.rendering_vaos)
         self.generate_chunk(0, 0)
 
     def generate_chunk(self, x, y):
         world_pos = (float(x * self.chunk_size), 0.0, float(y * self.chunk_size))
-        x = x % self.render_distance
-        y = y % self.render_distance
         chunk_id = x + y * self.render_distance
-        out_buffer = self.chunk_buffers[(x, y)]
-
-        print(chunk_id)
-        print(world_pos)
-        print(self.N)
+        out_buffer = self.chunk_buffers[x][y]
 
         self.terrain_generation_program["offset"] = world_pos
         self.terrain_generator.transform(
@@ -125,8 +128,11 @@ class TerrainTest(CameraWindow):
         self.test_render_program["m_camera"].write(self.camera.matrix)
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
 
-        for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
-            vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
+        self.rendering_vaos[0][0].render(
+            mode=moderngl.TRIANGLES, vertices=self.num_vertices[0]
+        )
+        # for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
+        #     vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
 
 if __name__ == "__main__":
