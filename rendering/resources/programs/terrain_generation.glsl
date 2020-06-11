@@ -10,16 +10,16 @@ uniform vec3 offset;
 uniform float seed;
 uniform float scale;
 uniform float amplitude;
-uniform int chunk_size;
+uniform int chunk_length;
 
 out int block_type;
 
 vec3 get_pos(int index) {
-    int y = int(index / (chunk_size * chunk_size));
-    index -= y * chunk_size * chunk_size;
-    int z = int(index / chunk_size);
-    index -= z * chunk_size;
-    int x = int(mod(index, chunk_size));
+    int y = int(index / (chunk_length * chunk_length));
+    index -= y * chunk_length * chunk_length;
+    int z = int(index / chunk_length);
+    index -= z * chunk_length;
+    int x = int(mod(index, chunk_length));
 
     return vec3(x,y,z);
 }

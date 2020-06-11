@@ -1,12 +1,11 @@
 from pathlib import Path
 import moderngl
-import numpy as np
-import moderngl_window as mglw
 from pyrr import Matrix44
 
-from base import CameraWindow
+from base import CameraWindow, OrbitCameraWindow
 
 
+# class TerrainTest(OrbitCameraWindow):
 class TerrainTest(CameraWindow):
     # moderngl_window settings
     gl_version = (3, 3)
@@ -16,33 +15,33 @@ class TerrainTest(CameraWindow):
     window_size = 1280, 720
     resizable = True
     samples = 4
+    clear_color = 51 / 255, 51 / 255, 51 / 255
 
     # app settings
-    chunk_size = 16
+    chunk_length = 16
     render_distance = 32
-    N = int(chunk_size ** 3)
+    N = int(chunk_length ** 3)
     seed = 1
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.ctx.wireframe = True
+        self.player_pos = (0, 0)
+
         # load programs
         self.terrain_generation_program = self.load_program("programs/terrain_generation.glsl")
         self.cube_emit_program = self.load_program(
-            vertex_shader="programs/cube_geometry_vs.glsl",
-            geometry_shader="programs/cube_geometry_geo.glsl",
-            # fragment_shader="programs/cube_geometry_fs.glsl",
+            vertex_shader="programs/cube_geometry_vs.glsl", geometry_shader="programs/cube_geometry_geo.glsl",
         )
-
-        self.cube_emit_program["CHUNK_LENGTH"] = self.chunk_size
 
         self.test_render_program = self.load_program("programs/test.glsl")
 
+        self.cube_emit_program["chunk_length"] = self.chunk_length
+
         self.terrain_generation_program["seed"] = self.seed
         self.terrain_generation_program["scale"] = 0.01
-        self.terrain_generation_program["amplitude"] = self.chunk_size
-        self.terrain_generation_program["chunk_size"] = self.chunk_size
+        self.terrain_generation_program["amplitude"] = self.chunk_length
+        self.terrain_generation_program["chunk_length"] = self.chunk_length
         self.terrain_generation_program["offset"] = (0.0, 0.0, 0.0)
 
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
@@ -83,14 +82,16 @@ class TerrainTest(CameraWindow):
         self.q = self.ctx.query(primitives=True)
 
         # generate some initial chunks
+        self.generate_surrounding_chunks(self.player_pos)
+
+    def generate_surrounding_chunks(self, pos):
         for y in range(self.render_distance):
             for x in range(self.render_distance):
-                self.generate_chunk(x, y, (x * self.chunk_size, 0, y * self.chunk_size))
-
-        print("done generating")
+                self.generate_chunk(x, y, (x * self.chunk_length + pos[0], 0, y * self.chunk_length + pos[1]))
 
     def generate_chunk(self, x, y, world_pos):
-        # world_pos = (float(x * self.chunk_size), 0.0, float(y * self.chunk_size))
+        # x,y position in 2d chunk grid to write to [0, render_distance]
+        # world_pos actual world position to write to [-inf, inf]
         chunk_id = x + y * self.render_distance
         out_buffer = self.chunk_buffers[chunk_id]
 
@@ -109,8 +110,9 @@ class TerrainTest(CameraWindow):
         # print(f"{chunk_id}: {self.rendering_vaos[chunk_id]}, {out_buffer} @ {self.q.primitives  * 3}")
 
     def render(self, time: float, frame_time: float) -> None:
-        self.ctx.clear(51 / 255, 51 / 255, 51 / 255)
         self.ctx.enable_only(moderngl.DEPTH_TEST)
+
+        # print(self.camera.angle_x, self.camera.angle_y)
 
         # update camera values in both programs
         self.test_render_program["m_camera"].write(self.camera.matrix)
@@ -119,7 +121,26 @@ class TerrainTest(CameraWindow):
         for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
             vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
+    def key_event(self, key, action, modifiers):
+        super().key_event(key, action, modifiers)
+        keys = self.wnd.keys
+        if action == keys.ACTION_PRESS:
+            if key in {keys.LEFT, keys.RIGHT, keys.UP, keys.DOWN}:
+                self.player_pos = (self.player_pos[0] - int(key == keys.LEFT) * self.chunk_length, self.player_pos[1])
+                self.player_pos = (self.player_pos[0] + int(key == keys.RIGHT) * self.chunk_length, self.player_pos[1])
+
+                self.player_pos = (self.player_pos[0], self.player_pos[1] - int(key == keys.DOWN) * self.chunk_length)
+                self.player_pos = (self.player_pos[0], self.player_pos[1] + int(key == keys.UP) * self.chunk_length)
+
+                self.generate_surrounding_chunks(self.player_pos)
+
+            if key == keys.G:
+                self.ctx.wireframe = not self.ctx.wireframe
+                if self.ctx.wireframe:
+                    self.ctx.enable_only(moderngl.DEPTH_TEST)
+                else:
+                    self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+
 
 if __name__ == "__main__":
-    # noinspection PyTypeChecker
-    mglw.run_window_config(TerrainTest)
+    TerrainTest.run()
