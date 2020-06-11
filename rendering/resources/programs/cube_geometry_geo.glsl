@@ -3,8 +3,7 @@
 layout (points) in;
 layout (triangle_strip, max_vertices = 36) out; // 4 vertices per side of the cube
 
-#define CHUNK_LENGTH 16
-//uniform int CHUNK_LENGTH;
+uniform int CHUNK_LENGTH;
 
 in int block_type[];
 in int index[];
@@ -85,7 +84,6 @@ void emit_quad(vec3 tl, vec3 bl, vec3 br, vec3 tr, vec3 in_normal) {
 
 void main()
 {
-    emit_quad(cube_corners[5], cube_corners[6], cube_corners[7], cube_corners[4], vec3( 0.0,  0.0,  1.0)); // front
     if (block_type[0] == 1){
         // Calculate the 8 cube corners
         ivec3 point = get_pos(index[0]);

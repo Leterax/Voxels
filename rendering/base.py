@@ -1,5 +1,6 @@
 import moderngl_window as mglw
 from moderngl_window.scene.camera import KeyboardCamera
+import moderngl
 
 
 class CameraWindow(mglw.WindowConfig):
@@ -31,6 +32,12 @@ class CameraWindow(mglw.WindowConfig):
                 self.wnd.cursor = not self.camera_enabled
             if key == keys.SPACE:
                 self.timer.toggle_pause()
+            if key == keys.G:
+                self.ctx.wireframe = not self.ctx.wireframe
+                if self.ctx.wireframe:
+                    self.ctx.enable_only(moderngl.DEPTH_TEST)
+                else:
+                    self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
     def mouse_position_event(self, x: int, y: int, dx, dy):
         if self.camera_enabled:

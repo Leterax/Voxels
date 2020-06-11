@@ -23,7 +23,7 @@ mat4 m_view = m_camera * m_model;
     mat3 m_normal = inverse(transpose(mat3(m_view)));
     normal = m_normal * normalize(in_normal);
     pos = p.xyz;
-    color = vec4(1., 1., .3, 1.);
+    color = vec4(0.25882352941176473, 0.5294117647058824, 0.9607843137254902, 1.);
 
 }
 
