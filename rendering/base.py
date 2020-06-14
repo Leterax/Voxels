@@ -8,7 +8,7 @@ class OrbitCameraWindow(mglw.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.camera = OrbitCamera(
-            aspect_ratio=self.wnd.aspect_ratio, far=1000.0, target=(256, 0, 256), radius=100, angles=(0.465, -1.35)
+            aspect_ratio=self.wnd.aspect_ratio, far=5000.0, target=(256, 0, 256), radius=100, angles=(0.465, -1.35)
         )
 
         self.camera.zoom_sensitivity = 5.0
@@ -43,8 +43,8 @@ class CameraWindow(mglw.WindowConfig):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio, far=500)
-        self.camera.set_rotation(45, -45)
+        self.camera = KeyboardCamera(self.wnd.keys, aspect_ratio=self.wnd.aspect_ratio, far=5000)
+        self.camera.set_rotation(45, 0)
         self.camera.set_position(-5, 25, -5)
         self.camera.mouse_sensitivity = 0.25
 
@@ -55,7 +55,7 @@ class CameraWindow(mglw.WindowConfig):
 
         if self.camera_enabled:
             if modifiers.shift:
-                self.camera.velocity = 50.0
+                self.camera.velocity = 100.0
             else:
                 self.camera.velocity = 5.0
             self.camera.key_input(key, action, modifiers)

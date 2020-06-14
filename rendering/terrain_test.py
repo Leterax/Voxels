@@ -1,5 +1,6 @@
 from pathlib import Path
 import moderngl
+import numpy as np
 from pyrr import Matrix44
 
 from base import CameraWindow, OrbitCameraWindow
@@ -19,14 +20,17 @@ class TerrainTest(CameraWindow):
 
     # app settings
     chunk_length = 16
-    render_distance = 32
+    render_distance = 33
     N = int(chunk_length ** 3)
     seed = 1
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.player_pos = (0, 0)
+        self.player_pos = (
+            self.chunk_length * (self.render_distance - 1) / 2,
+            self.chunk_length * (self.render_distance - 1) / 2,
+        )
 
         # load programs
         self.terrain_generation_program = self.load_program("programs/terrain_generation.glsl")
@@ -51,11 +55,14 @@ class TerrainTest(CameraWindow):
         self.terrain_gen_out_buffer = self.ctx.buffer(reserve=self.N * 4)
 
         # since we dont use indirect rendering we need one buffer per vao, so lets create them
-        self.chunk_buffers = [
-            self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
-            for _ in range(self.render_distance)
-            for _ in range(self.render_distance)
-        ]
+        chunk_buffers = []
+        self.chunk_ids = dict()
+        for x in range(self.render_distance):
+            for y in range(self.render_distance):
+                buf = self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
+                chunk_buffers.append(buf)
+                self.chunk_ids[buf.glo] = x + y * self.render_distance
+        self.chunk_buffers = np.array(chunk_buffers).reshape(self.render_distance, self.render_distance)
 
         # VAO's
         self.terrain_generator = self.ctx.vertex_array(self.terrain_generation_program, [])
@@ -65,8 +72,7 @@ class TerrainTest(CameraWindow):
         # no indirect rendering for now.. so we just create a bunch of vaos
         self.rendering_vaos = [
             self.ctx.vertex_array(
-                self.test_render_program,
-                [(self.chunk_buffers[x + y * self.render_distance], "3f4 3f4", "in_normal", "in_position")],
+                self.test_render_program, [(self.chunk_buffers[x, y], "3f4 3f4", "in_normal", "in_position")],
             )
             for y in range(self.render_distance)
             for x in range(self.render_distance)
@@ -84,16 +90,102 @@ class TerrainTest(CameraWindow):
         # generate some initial chunks
         self.generate_surrounding_chunks(self.player_pos)
 
+    def update_surrounding_chunks(self, x_offset, y_offset, player_pos):
+        def unique_elements(l):
+            unique = []
+            for element in l:
+                if element not in unique:
+                    unique.append(element)
+            return unique
+
+        player_pos = (
+            (player_pos[0] // self.chunk_length) * self.chunk_length,
+            (player_pos[1] // self.chunk_length) * self.chunk_length,
+        )
+        buffers_to_replace = []
+        world_positions = []
+
+        if x_offset == 1:  # shift to the right
+            self.chunk_buffers = np.roll(self.chunk_buffers, 2, axis=1)
+            buffers_to_replace.extend(self.chunk_buffers[:, -1])
+
+            world_positions.extend(
+                [
+                    (
+                        player_pos[0] + int((self.render_distance - 1) / 2) * self.chunk_length,
+                        0.0,
+                        player_pos[1] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                    )
+                    for y in range(self.render_distance)
+                ]
+            )
+
+        if x_offset == -1:  # shift to the left
+            self.chunk_buffers = np.roll(self.chunk_buffers, -2, axis=1)
+            buffers_to_replace.extend(self.chunk_buffers[:, 0])
+
+            world_positions.extend(
+                [
+                    (
+                        player_pos[0] - int((self.render_distance - 1) / 2) * self.chunk_length,
+                        0.0,
+                        player_pos[1] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                    )
+                    for y in range(self.render_distance)
+                ]
+            )
+
+        if y_offset == -1:  # shift down
+            self.chunk_buffers = np.roll(self.chunk_buffers, -1, axis=0)
+            buffers_to_replace.extend(self.chunk_buffers[-1, :])
+
+            world_positions.extend(
+                [
+                    (
+                        player_pos[0] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        0.0,
+                        player_pos[1] - int((self.render_distance - 1) / 2) * self.chunk_length,
+                    )
+                    for y in range(self.render_distance)
+                ]
+            )
+
+        if y_offset == 1:  # shift up
+            self.chunk_buffers = np.roll(self.chunk_buffers, 1, axis=0)
+            buffers_to_replace.extend(self.chunk_buffers[0, :])
+
+            world_positions.extend(
+                [
+                    (
+                        player_pos[0] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        0.0,
+                        player_pos[1] + int((self.render_distance - 1) / 2) * self.chunk_length,
+                    )
+                    for y in range(self.render_distance)
+                ]
+            )
+
+        buffers_to_replace = unique_elements(buffers_to_replace)
+        world_positions = unique_elements(world_positions)
+
+        for world_pos, buffer in zip(world_positions, buffers_to_replace):
+            # print(f"generating chunk {buffer} @ {world_pos}")
+            self.generate_chunk(buffer, world_pos)
+        # print("done shifting")
+
     def generate_surrounding_chunks(self, pos):
         for y in range(self.render_distance):
             for x in range(self.render_distance):
-                self.generate_chunk(x, y, (x * self.chunk_length + pos[0], 0, y * self.chunk_length + pos[1]))
+                self.generate_chunk(
+                    self.chunk_buffers[x, y], (x * self.chunk_length + pos[0], 0, y * self.chunk_length + pos[1])
+                )
 
-    def generate_chunk(self, x, y, world_pos):
+    def generate_chunk(self, out_buffer, world_pos):
         # x,y position in 2d chunk grid to write to [0, render_distance]
         # world_pos actual world position to write to [-inf, inf]
-        chunk_id = x + y * self.render_distance
-        out_buffer = self.chunk_buffers[chunk_id]
+        # chunk_id = x + y * self.render_distance
+        # out_buffer = self.chunk_buffers[chunk_id]
+        chunk_id = self.chunk_ids[out_buffer.glo]
 
         self.terrain_generation_program["offset"] = world_pos
         self.terrain_generator.transform(self.terrain_gen_out_buffer, mode=moderngl.POINTS, vertices=self.N)
@@ -126,13 +218,16 @@ class TerrainTest(CameraWindow):
         keys = self.wnd.keys
         if action == keys.ACTION_PRESS:
             if key in {keys.LEFT, keys.RIGHT, keys.UP, keys.DOWN}:
+                x_offset = -int(key == keys.LEFT) + int(key == keys.RIGHT)
+                y_offset = -int(key == keys.DOWN) + int(key == keys.UP)
                 self.player_pos = (self.player_pos[0] - int(key == keys.LEFT) * self.chunk_length, self.player_pos[1])
                 self.player_pos = (self.player_pos[0] + int(key == keys.RIGHT) * self.chunk_length, self.player_pos[1])
 
                 self.player_pos = (self.player_pos[0], self.player_pos[1] - int(key == keys.DOWN) * self.chunk_length)
                 self.player_pos = (self.player_pos[0], self.player_pos[1] + int(key == keys.UP) * self.chunk_length)
 
-                self.generate_surrounding_chunks(self.player_pos)
+                # print(self.player_pos, x_offset, y_offset)
+                self.update_surrounding_chunks(x_offset, y_offset, self.player_pos)
 
             if key == keys.G:
                 self.ctx.wireframe = not self.ctx.wireframe
