@@ -55,7 +55,7 @@ class CameraWindow(mglw.WindowConfig):
 
         if self.camera_enabled:
             if modifiers.shift:
-                self.camera.velocity = 100.0
+                self.camera.velocity = 250.0
             else:
                 self.camera.velocity = 5.0
             self.camera.key_input(key, action, modifiers)

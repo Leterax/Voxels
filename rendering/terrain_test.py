@@ -2,8 +2,27 @@ from pathlib import Path
 import moderngl
 import numpy as np
 from pyrr import Matrix44
+from time import perf_counter_ns
 
 from base import CameraWindow, OrbitCameraWindow
+
+
+class Timer:
+    def __init__(self):
+        self.history = []
+        self.start = 0
+
+    def __enter__(self):
+        self.start = perf_counter_ns()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.history.append(perf_counter_ns() - self.start)
+
+    def avg_time(self):
+        return sum(self.history) / len(self.history)
+
+    def reset(self):
+        self.history = []
 
 
 # class TerrainTest(OrbitCameraWindow):
@@ -20,7 +39,7 @@ class TerrainTest(CameraWindow):
 
     # app settings
     chunk_length = 16
-    render_distance = 33
+    render_distance = 65
     N = int(chunk_length ** 3)
     seed = 1
 
@@ -31,7 +50,7 @@ class TerrainTest(CameraWindow):
             self.chunk_length * (self.render_distance - 1) / 2,
             self.chunk_length * (self.render_distance - 1) / 2,
         )
-
+        self.last_camera_position = np.array([self.chunk_length * (self.render_distance - 1) / 2, 0.])
         # load programs
         self.terrain_generation_program = self.load_program("programs/terrain_generation.glsl")
         self.cube_emit_program = self.load_program(
@@ -59,7 +78,7 @@ class TerrainTest(CameraWindow):
         self.chunk_ids = dict()
         for x in range(self.render_distance):
             for y in range(self.render_distance):
-                buf = self.ctx.buffer(reserve=4 * 3 * 12 * 6 * self.N)
+                buf = self.ctx.buffer(reserve=int(4 * 3 * 12 * 6 * self.N * 0.07))
                 chunk_buffers.append(buf)
                 self.chunk_ids[buf.glo] = x + y * self.render_distance
         self.chunk_buffers = np.array(chunk_buffers).reshape(self.render_distance, self.render_distance)
@@ -86,9 +105,11 @@ class TerrainTest(CameraWindow):
         )
 
         self.q = self.ctx.query(primitives=True)
-
+        self.timer = Timer()
         # generate some initial chunks
         self.generate_surrounding_chunks(self.player_pos)
+
+        print(max(self.num_vertices))
 
     def update_surrounding_chunks(self, x_offset, y_offset, player_pos):
         def unique_elements(l):
@@ -177,7 +198,12 @@ class TerrainTest(CameraWindow):
         for y in range(self.render_distance):
             for x in range(self.render_distance):
                 self.generate_chunk(
-                    self.chunk_buffers[x, y], (x * self.chunk_length + pos[0], 0, y * self.chunk_length + pos[1])
+                    self.chunk_buffers[-y, -x],
+                    (
+                        (x - self.render_distance // 2) * self.chunk_length + pos[0],
+                        0,
+                        (y - self.render_distance // 2) * self.chunk_length + pos[1],
+                    ),
                 )
 
     def generate_chunk(self, out_buffer, world_pos):
@@ -204,7 +230,11 @@ class TerrainTest(CameraWindow):
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.enable_only(moderngl.DEPTH_TEST)
 
-        # print(self.camera.angle_x, self.camera.angle_y)
+        camera_chunk = np.array([self.camera.position[0], self.camera.position[-1]])
+        chunk_delta = self.last_camera_position // self.chunk_length - camera_chunk // self.chunk_length
+        if np.linalg.norm(chunk_delta) >= 1:
+            self.last_camera_position = camera_chunk
+            self.update_surrounding_chunks(-chunk_delta[0], -chunk_delta[1], self.last_camera_position)
 
         # update camera values in both programs
         self.test_render_program["m_camera"].write(self.camera.matrix)
@@ -212,6 +242,9 @@ class TerrainTest(CameraWindow):
 
         for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
             vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
+
+    def close(self):
+        print(f"avg: {self.timer.avg_time()}")
 
     def key_event(self, key, action, modifiers):
         super().key_event(key, action, modifiers)
