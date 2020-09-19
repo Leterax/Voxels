@@ -6,6 +6,8 @@ from time import perf_counter_ns
 import configparser
 from base import CameraWindow
 
+np.set_printoptions(linewidth=100)
+
 config = configparser.ConfigParser()
 config.read("config.ini")
 
@@ -75,7 +77,7 @@ class TerrainTest(CameraWindow):
     clear_color = 51 / 255, 51 / 255, 51 / 255
 
     # app settings
-    render_distance = 16
+    render_distance = 33
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -83,6 +85,8 @@ class TerrainTest(CameraWindow):
         self.chunk_size = int(config["WORLD"]["chunk_size"])
         self.seed = int(config["WORLD"]["seed"])
         self.N = self.chunk_size ** 3
+
+        self.show_id = False
 
         self.player = Player(
             int(config["PLAYER"]["x"]),
@@ -127,7 +131,6 @@ class TerrainTest(CameraWindow):
         self.chunk_buffers = np.array(chunk_buffers).reshape(
             (self.render_distance, self.render_distance)
         )
-
         # VAO's
         self.terrain_generator = self.ctx.vertex_array(
             self.terrain_generation_program, []
@@ -158,8 +161,6 @@ class TerrainTest(CameraWindow):
         self.generate_surrounding_chunks(self.player.position)
 
     def update_surrounding_chunks(self, x_offset, y_offset, player_pos):
-        print(x_offset, y_offset)
-
         def unique_elements(my_list):
             unique = []
             for element in my_list:
@@ -170,6 +171,10 @@ class TerrainTest(CameraWindow):
         buffers_to_replace = []
         world_positions = []
 
+        half_render_dst = int((self.render_distance - 1) / 2)
+        chunk_x = self.player.chunk_position[0]
+        chunk_y = self.player.chunk_position[1]
+
         if x_offset == 1:  # shift to the right
             # buffers_to_replace.extend(self.chunk_buffers[:, -1])
             self.chunk_buffers = np.roll(self.chunk_buffers, -1, axis=1)
@@ -178,14 +183,11 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        self.player.chunk_position[0]
-                        + int((self.render_distance - 1) / 2) * self.chunk_size,
+                        chunk_x + half_render_dst * self.chunk_size,
                         0.0,
-                        self.player.chunk_position[1]
-                        + self.chunk_size * y
-                        - int((self.render_distance - 1) / 2 * self.chunk_size),
+                        chunk_y + self.chunk_size * (y - half_render_dst),
                     )
-                    for y in range(self.render_distance)
+                    for y in reversed(range(self.render_distance))
                 ]
             )
 
@@ -197,14 +199,11 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        self.player.chunk_position[0]
-                        - int((self.render_distance - 1) / 2) * self.chunk_size,
+                        chunk_x - half_render_dst * self.chunk_size,
                         0.0,
-                        self.player.chunk_position[1]
-                        + self.chunk_size * y
-                        - int((self.render_distance - 1) / 2 * self.chunk_size),
+                        chunk_y + self.chunk_size * (y - half_render_dst),
                     )
-                    for y in range(self.render_distance)
+                    for y in reversed(range(self.render_distance))
                 ]
             )
 
@@ -215,12 +214,9 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        self.player.chunk_position[0]
-                        + self.chunk_size * y
-                        - int((self.render_distance - 1) / 2 * self.chunk_size),
+                        chunk_x + self.chunk_size * (y - half_render_dst),
                         0.0,
-                        self.player.chunk_position[1]
-                        - int((self.render_distance - 1) / 2) * self.chunk_size,
+                        chunk_y - half_render_dst * self.chunk_size,
                     )
                     for y in range(self.render_distance)
                 ]
@@ -233,12 +229,9 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        self.player.chunk_position[0]
-                        + self.chunk_size * y
-                        - int((self.render_distance - 1) / 2 * self.chunk_size),
+                        chunk_x + self.chunk_size * (y - half_render_dst),
                         0.0,
-                        self.player.chunk_position[1]
-                        + int((self.render_distance - 1) / 2) * self.chunk_size,
+                        chunk_y + half_render_dst * self.chunk_size,
                     )
                     for y in range(self.render_distance)
                 ]
@@ -256,7 +249,7 @@ class TerrainTest(CameraWindow):
         for y in range(self.render_distance):
             for x in range(self.render_distance):
                 self.generate_chunk(
-                    self.chunk_buffers[x, y],
+                    self.chunk_buffers[-x, -y],
                     (
                         (x - self.render_distance // 2) * self.chunk_size + pos[0],
                         0,
@@ -297,20 +290,18 @@ class TerrainTest(CameraWindow):
         chunk_delta = self.last_player_chunk - self.player.chunk
         if np.linalg.norm(chunk_delta) >= 1:
             self.last_player_chunk = self.player.chunk
-            if chunk_delta[0]:
-                self.update_surrounding_chunks(
-                    -chunk_delta[0], 0, self.player.position
-                )
-            if chunk_delta[1]:
-                self.update_surrounding_chunks(
-                    0, -chunk_delta[1], self.player.position
-                )
+            self.update_surrounding_chunks(
+                -chunk_delta[0], -chunk_delta[1], self.player.position
+            )
 
         # update camera values
         self.test_render_program["m_camera"].write(self.camera.matrix)
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
 
+        self.test_render_program["id"] = -1
         for vao, num_vertices in zip(self.rendering_vaos, self.num_vertices):
+            if self.show_id:
+                self.test_render_program["id"] = vao.glo
             vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
     def close(self):
@@ -319,30 +310,6 @@ class TerrainTest(CameraWindow):
     def key_event(self, key, action, modifiers):
         super().key_event(key, action, modifiers)
         keys = self.wnd.keys
-        # if action == keys.ACTION_PRESS:
-        #     if key in {keys.LEFT, keys.RIGHT, keys.UP, keys.DOWN}:
-        #         x_offset = -int(key == keys.LEFT) + int(key == keys.RIGHT)
-        #         y_offset = -int(key == keys.DOWN) + int(key == keys.UP)
-        #         self.player_pos = (
-        #             self.player_pos[0] - int(key == keys.LEFT) * self.chunk_size,
-        #             self.player_pos[1],
-        #         )
-        #         self.player_pos = (
-        #             self.player_pos[0] + int(key == keys.RIGHT) * self.chunk_size,
-        #             self.player_pos[1],
-        #         )
-
-        #         self.player_pos = (
-        #             self.player_pos[0],
-        #             self.player_pos[1] - int(key == keys.DOWN) * self.chunk_size,
-        #         )
-        #         self.player_pos = (
-        #             self.player_pos[0],
-        #             self.player_pos[1] + int(key == keys.UP) * self.chunk_size,
-        #         )
-
-        #         # print(self.player_pos, x_offset, y_offset)
-        #         self.update_surrounding_chunks(x_offset, y_offset, self.player_pos)
 
         if key == keys.G:
             self.ctx.wireframe = not self.ctx.wireframe
@@ -350,6 +317,11 @@ class TerrainTest(CameraWindow):
                 self.ctx.enable_only(moderngl.DEPTH_TEST)
             else:
                 self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+
+        if key == keys.F:
+            self.show_id = True
+        else:
+            self.show_id = False
 
 
 if __name__ == "__main__":

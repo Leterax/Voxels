@@ -10,6 +10,7 @@ in vec3 in_normal;
 uniform mat4 m_model;
 uniform mat4 m_camera;
 uniform mat4 m_proj;
+uniform float id;
 
 // out variables
 out vec3 pos;
@@ -23,8 +24,13 @@ mat4 m_view = m_camera * m_model;
     mat3 m_normal = inverse(transpose(mat3(m_view)));
     normal = m_normal * normalize(in_normal);
     pos = p.xyz;
-    color = vec4(0.25882352941176473, 0.5294117647058824, 0.9607843137254902, 1.);
-
+    if (id == -1) {
+        color = vec4(0.25882352941176473, 0.5294117647058824, 0.9607843137254902, 1.);
+    }
+    else {
+        color = vec4(sin(id), cos(id), sin(2*id), 1.);
+    }
+    
 }
 
     #elif defined FRAGMENT_SHADER
