@@ -3,8 +3,11 @@ import moderngl
 import numpy as np
 from pyrr import Matrix44
 from time import perf_counter_ns
+import configparser
+from base import CameraWindow
 
-from base import CameraWindow, OrbitCameraWindow
+config = configparser.ConfigParser()
+config.read("config.ini")
 
 
 class Timer:
@@ -19,10 +22,44 @@ class Timer:
         self.history.append(perf_counter_ns() - self.start)
 
     def avg_time(self):
+        if len(self.history) == 0:
+            return -1.0
         return sum(self.history) / len(self.history)
+
+    def __repr__(self):
+        return f"Average time taken: {self.avg_time():.2f}"
 
     def reset(self):
         self.history = []
+
+
+class Player:
+    def __init__(self, x, y, z):
+        self._position = np.array([x, y, z], dtype=int)
+        self._position_xz = np.array([x, z], dtype=int)
+
+        self._chunk_size = float(config["WORLD"]["chunk_size"])
+
+    @property
+    def chunk_position(self) -> np.ndarray:
+        return self.chunk * self._chunk_size
+
+    @property
+    def chunk(self) -> np.ndarray:
+        return self._position_xz // self._chunk_size
+
+    @property
+    def position(self) -> np.ndarray:
+        return self._position
+
+    @position.setter
+    def position(self, xyz: np.ndarray):
+        self._position[:] = xyz
+        self._position_xz[:] = (xyz[0], xyz[2])
+
+    def move(self, x: int = 0, y: int = 0, z: int = 0):
+        self._position += (x, y, z)
+        self._position_xz += (x, z)
 
 
 # class TerrainTest(OrbitCameraWindow):
@@ -38,33 +75,39 @@ class TerrainTest(CameraWindow):
     clear_color = 51 / 255, 51 / 255, 51 / 255
 
     # app settings
-    chunk_length = 16
-    render_distance = 65
-    N = int(chunk_length ** 3)
-    seed = 1
+    render_distance = 16
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.player_pos = (
-            self.chunk_length * (self.render_distance - 1) / 2,
-            self.chunk_length * (self.render_distance - 1) / 2,
+        self.chunk_size = int(config["WORLD"]["chunk_size"])
+        self.seed = int(config["WORLD"]["seed"])
+        self.N = self.chunk_size ** 3
+
+        self.player = Player(
+            int(config["PLAYER"]["x"]),
+            int(config["PLAYER"]["y"]),
+            int(config["PLAYER"]["z"]),
         )
-        self.last_camera_position = np.array([self.chunk_length * (self.render_distance - 1) / 2, 0.])
+
+        self.last_player_chunk = self.player.chunk.copy()
         # load programs
-        self.terrain_generation_program = self.load_program("programs/terrain_generation.glsl")
+        self.terrain_generation_program = self.load_program(
+            "programs/terrain_generation.glsl"
+        )
         self.cube_emit_program = self.load_program(
-            vertex_shader="programs/cube_geometry_vs.glsl", geometry_shader="programs/cube_geometry_geo.glsl",
+            vertex_shader="programs/cube_geometry_vs.glsl",
+            geometry_shader="programs/cube_geometry_geo.glsl",
         )
 
         self.test_render_program = self.load_program("programs/test.glsl")
 
-        self.cube_emit_program["chunk_length"] = self.chunk_length
+        self.cube_emit_program["chunk_size"] = self.chunk_size
 
         self.terrain_generation_program["seed"] = self.seed
         self.terrain_generation_program["scale"] = 0.01
-        self.terrain_generation_program["amplitude"] = self.chunk_length
-        self.terrain_generation_program["chunk_length"] = self.chunk_length
+        self.terrain_generation_program["amplitude"] = self.chunk_size
+        self.terrain_generation_program["chunk_size"] = self.chunk_size
         self.terrain_generation_program["offset"] = (0.0, 0.0, 0.0)
 
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
@@ -76,25 +119,30 @@ class TerrainTest(CameraWindow):
         # since we dont use indirect rendering we need one buffer per vao, so lets create them
         chunk_buffers = []
         self.chunk_ids = dict()
-        for x in range(self.render_distance):
-            for y in range(self.render_distance):
+        for y in range(self.render_distance):
+            for x in range(self.render_distance):
                 buf = self.ctx.buffer(reserve=int(4 * 3 * 12 * 6 * self.N * 0.07))
                 chunk_buffers.append(buf)
                 self.chunk_ids[buf.glo] = x + y * self.render_distance
-        self.chunk_buffers = np.array(chunk_buffers).reshape(self.render_distance, self.render_distance)
+        self.chunk_buffers = np.array(chunk_buffers).reshape(
+            (self.render_distance, self.render_distance)
+        )
 
         # VAO's
-        self.terrain_generator = self.ctx.vertex_array(self.terrain_generation_program, [])
+        self.terrain_generator = self.ctx.vertex_array(
+            self.terrain_generation_program, []
+        )
         self.geometry_vao = self.ctx.vertex_array(
             self.cube_emit_program, [(self.terrain_gen_out_buffer, "i", "in_block")]
         )
         # no indirect rendering for now.. so we just create a bunch of vaos
         self.rendering_vaos = [
             self.ctx.vertex_array(
-                self.test_render_program, [(self.chunk_buffers[x, y], "3f4 3f4", "in_normal", "in_position")],
+                self.test_render_program,
+                [(self.chunk_buffers[x, y], "3f4 3f4", "in_normal", "in_position")],
             )
-            for y in range(self.render_distance)
             for x in range(self.render_distance)
+            for y in range(self.render_distance)
         ]
         # number of vertices for each vao/buffer
         self.num_vertices = [0] * self.render_distance ** 2
@@ -107,50 +155,54 @@ class TerrainTest(CameraWindow):
         self.q = self.ctx.query(primitives=True)
         self.timer = Timer()
         # generate some initial chunks
-        self.generate_surrounding_chunks(self.player_pos)
-
-        print(max(self.num_vertices))
+        self.generate_surrounding_chunks(self.player.position)
 
     def update_surrounding_chunks(self, x_offset, y_offset, player_pos):
-        def unique_elements(l):
+        print(x_offset, y_offset)
+
+        def unique_elements(my_list):
             unique = []
-            for element in l:
+            for element in my_list:
                 if element not in unique:
                     unique.append(element)
             return unique
 
-        player_pos = (
-            (player_pos[0] // self.chunk_length) * self.chunk_length,
-            (player_pos[1] // self.chunk_length) * self.chunk_length,
-        )
         buffers_to_replace = []
         world_positions = []
 
         if x_offset == 1:  # shift to the right
-            self.chunk_buffers = np.roll(self.chunk_buffers, 2, axis=1)
+            # buffers_to_replace.extend(self.chunk_buffers[:, -1])
+            self.chunk_buffers = np.roll(self.chunk_buffers, -1, axis=1)
             buffers_to_replace.extend(self.chunk_buffers[:, -1])
 
             world_positions.extend(
                 [
                     (
-                        player_pos[0] + int((self.render_distance - 1) / 2) * self.chunk_length,
+                        self.player.chunk_position[0]
+                        + int((self.render_distance - 1) / 2) * self.chunk_size,
                         0.0,
-                        player_pos[1] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        self.player.chunk_position[1]
+                        + self.chunk_size * y
+                        - int((self.render_distance - 1) / 2 * self.chunk_size),
                     )
                     for y in range(self.render_distance)
                 ]
             )
 
         if x_offset == -1:  # shift to the left
-            self.chunk_buffers = np.roll(self.chunk_buffers, -2, axis=1)
+            # buffers_to_replace.extend(self.chunk_buffers[:, 0])
+            self.chunk_buffers = np.roll(self.chunk_buffers, 1, axis=1)
             buffers_to_replace.extend(self.chunk_buffers[:, 0])
 
             world_positions.extend(
                 [
                     (
-                        player_pos[0] - int((self.render_distance - 1) / 2) * self.chunk_length,
+                        self.player.chunk_position[0]
+                        - int((self.render_distance - 1) / 2) * self.chunk_size,
                         0.0,
-                        player_pos[1] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        self.player.chunk_position[1]
+                        + self.chunk_size * y
+                        - int((self.render_distance - 1) / 2 * self.chunk_size),
                     )
                     for y in range(self.render_distance)
                 ]
@@ -163,9 +215,12 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        player_pos[0] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        self.player.chunk_position[0]
+                        + self.chunk_size * y
+                        - int((self.render_distance - 1) / 2 * self.chunk_size),
                         0.0,
-                        player_pos[1] - int((self.render_distance - 1) / 2) * self.chunk_length,
+                        self.player.chunk_position[1]
+                        - int((self.render_distance - 1) / 2) * self.chunk_size,
                     )
                     for y in range(self.render_distance)
                 ]
@@ -178,9 +233,12 @@ class TerrainTest(CameraWindow):
             world_positions.extend(
                 [
                     (
-                        player_pos[0] + self.chunk_length * y - int((self.render_distance - 1) / 2 * self.chunk_length),
+                        self.player.chunk_position[0]
+                        + self.chunk_size * y
+                        - int((self.render_distance - 1) / 2 * self.chunk_size),
                         0.0,
-                        player_pos[1] + int((self.render_distance - 1) / 2) * self.chunk_length,
+                        self.player.chunk_position[1]
+                        + int((self.render_distance - 1) / 2) * self.chunk_size,
                     )
                     for y in range(self.render_distance)
                 ]
@@ -198,25 +256,28 @@ class TerrainTest(CameraWindow):
         for y in range(self.render_distance):
             for x in range(self.render_distance):
                 self.generate_chunk(
-                    self.chunk_buffers[-y, -x],
+                    self.chunk_buffers[x, y],
                     (
-                        (x - self.render_distance // 2) * self.chunk_length + pos[0],
+                        (x - self.render_distance // 2) * self.chunk_size + pos[0],
                         0,
-                        (y - self.render_distance // 2) * self.chunk_length + pos[1],
+                        (y - self.render_distance // 2) * self.chunk_size + pos[2],
                     ),
                 )
 
     def generate_chunk(self, out_buffer, world_pos):
-        # x,y position in 2d chunk grid to write to [0, render_distance]
-        # world_pos actual world position to write to [-inf, inf]
+        # world_pos actual world position to write to [-inf, inf] in voxel space not chunk space
         # chunk_id = x + y * self.render_distance
         # out_buffer = self.chunk_buffers[chunk_id]
         chunk_id = self.chunk_ids[out_buffer.glo]
 
         self.terrain_generation_program["offset"] = world_pos
-        self.terrain_generator.transform(self.terrain_gen_out_buffer, mode=moderngl.POINTS, vertices=self.N)
+        self.terrain_generator.transform(
+            self.terrain_gen_out_buffer, mode=moderngl.POINTS, vertices=self.N
+        )
 
-        self.world_texture.write(self.terrain_gen_out_buffer.read(), viewport=(0, chunk_id, self.N, 1))
+        self.world_texture.write(
+            self.terrain_gen_out_buffer.read(), viewport=(0, chunk_id, self.N, 1)
+        )
 
         self.cube_emit_program["chunk_id"] = chunk_id
         self.cube_emit_program["chunk_pos"] = world_pos
@@ -225,18 +286,27 @@ class TerrainTest(CameraWindow):
             self.geometry_vao.transform(out_buffer, mode=moderngl.POINTS)
 
         self.num_vertices[chunk_id] = self.q.primitives * 3
-        # print(f"{chunk_id}: {self.rendering_vaos[chunk_id]}, {out_buffer} @ {self.q.primitives  * 3}")
+        # print(f"{chunk_id}: {self.rendering_vaos[chunk_id]}, \
+        # {out_buffer} @ {self.q.primitives  * 3}")
 
     def render(self, time: float, frame_time: float) -> None:
         self.ctx.enable_only(moderngl.DEPTH_TEST)
 
-        camera_chunk = np.array([self.camera.position[0], self.camera.position[-1]])
-        chunk_delta = self.last_camera_position // self.chunk_length - camera_chunk // self.chunk_length
-        if np.linalg.norm(chunk_delta) >= 1:
-            self.last_camera_position = camera_chunk
-            self.update_surrounding_chunks(-chunk_delta[0], -chunk_delta[1], self.last_camera_position)
+        self.player.position = self.camera.position
 
-        # update camera values in both programs
+        chunk_delta = self.last_player_chunk - self.player.chunk
+        if np.linalg.norm(chunk_delta) >= 1:
+            self.last_player_chunk = self.player.chunk
+            if chunk_delta[0]:
+                self.update_surrounding_chunks(
+                    -chunk_delta[0], 0, self.player.position
+                )
+            if chunk_delta[1]:
+                self.update_surrounding_chunks(
+                    0, -chunk_delta[1], self.player.position
+                )
+
+        # update camera values
         self.test_render_program["m_camera"].write(self.camera.matrix)
         self.test_render_program["m_proj"].write(self.camera.projection.matrix)
 
@@ -244,30 +314,42 @@ class TerrainTest(CameraWindow):
             vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
     def close(self):
-        print(f"avg: {self.timer.avg_time()}")
+        print(self.timer)
 
     def key_event(self, key, action, modifiers):
         super().key_event(key, action, modifiers)
         keys = self.wnd.keys
-        if action == keys.ACTION_PRESS:
-            if key in {keys.LEFT, keys.RIGHT, keys.UP, keys.DOWN}:
-                x_offset = -int(key == keys.LEFT) + int(key == keys.RIGHT)
-                y_offset = -int(key == keys.DOWN) + int(key == keys.UP)
-                self.player_pos = (self.player_pos[0] - int(key == keys.LEFT) * self.chunk_length, self.player_pos[1])
-                self.player_pos = (self.player_pos[0] + int(key == keys.RIGHT) * self.chunk_length, self.player_pos[1])
+        # if action == keys.ACTION_PRESS:
+        #     if key in {keys.LEFT, keys.RIGHT, keys.UP, keys.DOWN}:
+        #         x_offset = -int(key == keys.LEFT) + int(key == keys.RIGHT)
+        #         y_offset = -int(key == keys.DOWN) + int(key == keys.UP)
+        #         self.player_pos = (
+        #             self.player_pos[0] - int(key == keys.LEFT) * self.chunk_size,
+        #             self.player_pos[1],
+        #         )
+        #         self.player_pos = (
+        #             self.player_pos[0] + int(key == keys.RIGHT) * self.chunk_size,
+        #             self.player_pos[1],
+        #         )
 
-                self.player_pos = (self.player_pos[0], self.player_pos[1] - int(key == keys.DOWN) * self.chunk_length)
-                self.player_pos = (self.player_pos[0], self.player_pos[1] + int(key == keys.UP) * self.chunk_length)
+        #         self.player_pos = (
+        #             self.player_pos[0],
+        #             self.player_pos[1] - int(key == keys.DOWN) * self.chunk_size,
+        #         )
+        #         self.player_pos = (
+        #             self.player_pos[0],
+        #             self.player_pos[1] + int(key == keys.UP) * self.chunk_size,
+        #         )
 
-                # print(self.player_pos, x_offset, y_offset)
-                self.update_surrounding_chunks(x_offset, y_offset, self.player_pos)
+        #         # print(self.player_pos, x_offset, y_offset)
+        #         self.update_surrounding_chunks(x_offset, y_offset, self.player_pos)
 
-            if key == keys.G:
-                self.ctx.wireframe = not self.ctx.wireframe
-                if self.ctx.wireframe:
-                    self.ctx.enable_only(moderngl.DEPTH_TEST)
-                else:
-                    self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
+        if key == keys.G:
+            self.ctx.wireframe = not self.ctx.wireframe
+            if self.ctx.wireframe:
+                self.ctx.enable_only(moderngl.DEPTH_TEST)
+            else:
+                self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 layout (points) in;
 layout (triangle_strip, max_vertices = 36) out; // 4 vertices per side of the cube
 
-uniform int chunk_length;
+uniform int chunk_size;
 
 in int block_type[];
 in int index[];
@@ -29,11 +29,11 @@ vec3 cube_corners[8] = vec3[]  (
 );
 
 ivec3 get_pos(int index) {
-    int y = int(index / (chunk_length * chunk_length));
-    index -= y * chunk_length * chunk_length;
-    int z = int(index / chunk_length);
-    index -= z * chunk_length;
-    int x = int(mod(index, chunk_length));
+    int y = int(index / (chunk_size * chunk_size));
+    index -= y * chunk_size * chunk_size;
+    int z = int(index / chunk_size);
+    index -= z * chunk_size;
+    int x = int(mod(index, chunk_size));
 
     return ivec3(x,y,z);
 }
@@ -41,8 +41,8 @@ ivec3 get_pos(int index) {
 int get_index(ivec3 pos) {
     //ivec3 chunk = pos/CHUNK_SIZE;
     // check if position is outside of chunk.
-    if ((0 <= pos.x && pos.x < chunk_length) && (0 <= pos.y && pos.y < chunk_length) && (0 <= pos.z && pos.z < chunk_length)) {
-        int in_chunk_id = chunk_length * chunk_length * pos.y + chunk_length * pos.z + pos.x;
+    if ((0 <= pos.x && pos.x < chunk_size) && (0 <= pos.y && pos.y < chunk_size) && (0 <= pos.z && pos.z < chunk_size)) {
+        int in_chunk_id = chunk_size * chunk_size * pos.y + chunk_size * pos.z + pos.x;
         return in_chunk_id;
     }
     else {

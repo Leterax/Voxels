@@ -1,6 +1,6 @@
 #version 330
 
-uniform int CHUNK_LENGTH;
+uniform int chunk_size;
 
 
 vec3 get_pos(int index) {
@@ -8,11 +8,11 @@ vec3 get_pos(int index) {
 
     //index = int(mod(index, CHUNK_SIZE));
 
-    int y = int(index / (CHUNK_LENGTH * CHUNK_LENGTH));
-    index -= y * CHUNK_LENGTH * CHUNK_LENGTH;
-    int z = int(index / CHUNK_LENGTH);
-    index -= z * CHUNK_LENGTH;
-    int x = int(mod(index, CHUNK_LENGTH));
+    int y = int(index / (chunk_size * chunk_size));
+    index -= y * chunk_size * chunk_size;
+    int z = int(index / chunk_size);
+    index -= z * chunk_size;
+    int x = int(mod(index, chunk_size));
 
     return vec3(x,y,z);
 }
