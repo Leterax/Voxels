@@ -8,8 +8,9 @@ from base import CameraWindow
 
 np.set_printoptions(linewidth=100)
 
+config_file = "config.ini"
 config = configparser.ConfigParser()
-config.read("config.ini")
+config.read(config_file)
 
 
 class Timer:
@@ -29,7 +30,7 @@ class Timer:
         return sum(self.history) / len(self.history)
 
     def __repr__(self):
-        return f"Average time taken: {self.avg_time():.2f}"
+        return f"Average time taken: {self.avg_time() / 1e9:.3f}s ({self.avg_time():.1f}ns)"
 
     def reset(self):
         self.history = []
@@ -59,6 +60,18 @@ class Player:
         self._position[:] = xyz
         self._position_xz[:] = (xyz[0], xyz[2])
 
+    @property
+    def x(self):
+        return self.position[0]
+
+    @property
+    def y(self):
+        return self.position[1]
+
+    @property
+    def z(self):
+        return self.position[2]
+
     def move(self, x: int = 0, y: int = 0, z: int = 0):
         self._position += (x, y, z)
         self._position_xz += (x, z)
@@ -76,9 +89,6 @@ class TerrainTest(CameraWindow):
     samples = 4
     clear_color = 51 / 255, 51 / 255, 51 / 255
 
-    # app settings
-    render_distance = 33
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -93,6 +103,11 @@ class TerrainTest(CameraWindow):
             int(config["PLAYER"]["y"]),
             int(config["PLAYER"]["z"]),
         )
+        self.camera.set_position(self.player.x, self.player.y, self.player.z)
+
+        self.render_distance = int(config["WORLD"]["render_distance"])
+        # make sure render_distance is odd, 32 -> 33, 33 -> 33
+        self.render_distance += not self.render_distance % 2
 
         self.last_player_chunk = self.player.chunk.copy()
         # load programs
@@ -156,8 +171,9 @@ class TerrainTest(CameraWindow):
         )
 
         self.q = self.ctx.query(primitives=True)
-        self.timer = Timer()
+        self.avg_timer = Timer()
         # generate some initial chunks
+        print(f"generating chunks around {self.player.position}")
         self.generate_surrounding_chunks(self.player.position)
 
     def update_surrounding_chunks(self, x_offset, y_offset, player_pos):
@@ -290,9 +306,10 @@ class TerrainTest(CameraWindow):
         chunk_delta = self.last_player_chunk - self.player.chunk
         if np.linalg.norm(chunk_delta) >= 1:
             self.last_player_chunk = self.player.chunk
-            self.update_surrounding_chunks(
-                -chunk_delta[0], -chunk_delta[1], self.player.position
-            )
+            with self.avg_timer:
+                self.update_surrounding_chunks(
+                    -chunk_delta[0], -chunk_delta[1], self.player.position
+                )
 
         # update camera values
         self.test_render_program["m_camera"].write(self.camera.matrix)
@@ -305,7 +322,13 @@ class TerrainTest(CameraWindow):
             vao.render(mode=moderngl.TRIANGLES, vertices=num_vertices)
 
     def close(self):
-        print(self.timer)
+        print(self.avg_timer)
+        # save the updated info
+        config["PLAYER"]["x"] = str(self.player.x)
+        config["PLAYER"]["y"] = str(self.player.y)
+        config["PLAYER"]["z"] = str(self.player.z)
+        with open(config_file, "w") as f:
+            config.write(f)
 
     def key_event(self, key, action, modifiers):
         super().key_event(key, action, modifiers)
